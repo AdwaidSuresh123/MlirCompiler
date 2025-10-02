@@ -35,5 +35,33 @@ def Nova_AddOp : Op<Nova_Dialect, "add", [Pure, InferTypeOpInterface]> {
       ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
 }
+def NovaNegOp : Op<Nova_Dialect, "negate", [Pure, InferTypeOpInterface]> {
+  let summary = "Elementwise tensor negation";
+  let description = [{
+    Negates a tensor elementwise. Result type is automatically inferred.
+
+    Example:
+      %r = nova.negate %a : tensor<2x2xf32>
+  }];
+
+  let arguments = (ins Nova_Tensor:$lhs);
+  let results = (outs Nova_Tensor:$result);
+
+  // Assembly format: include the operand and result type
+  let assemblyFormat = "$lhs attr-dict `:` type($lhs)";
+
+  // Declare the type inference method
+  let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+}
+
 
 #endif // NOVA_OPS
