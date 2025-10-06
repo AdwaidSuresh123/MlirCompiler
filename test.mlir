@@ -1,6 +1,11 @@
-//test file
-func.func @test_add(%arg0: tensor<2x2xf32>, %arg1: tensor<2x2xf32>) -> tensor<2x2xf32> {
-  %0 = nova.add %arg0, %arg1 : tensor<2x2xf32>, tensor<2x2xf32>
-  return %0 : tensor<2x2xf32>
+module {
+  func.func @test_broadcast(%arg0: tensor<3xf32>, %arg1: tensor<2x3xf32>) -> tensor<2x3xf32> {
+    %0 = nova.add %arg1, %arg0 : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+    return %0 : tensor<2x3xf32>
+  }
+  
+  func.func @test_explicit_broadcast(%arg0: tensor<3xf32>) -> tensor<2x3xf32> {
+    %0 = nova.broadcast_in_dim %arg0, dims = [1] : (tensor<3xf32>) -> tensor<2x3xf32>
+    return %0 : tensor<2x3xf32>
+  }
 }
-
