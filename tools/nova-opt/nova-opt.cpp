@@ -5,12 +5,19 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/InitAllPasses.h"
 
+#include "mlir/Transforms/ViewOpGraph.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "Compiler/Dialect/nova/NovaDialect.h"
 #include "Compiler/Dialect/nova/NovaOps.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
+
+  // Register the ViewOpGraph pass specifically
+  mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
+    return mlir::createPrintOpGraphPass();
+  });
 
   mlir::DialectRegistry registry;
   
