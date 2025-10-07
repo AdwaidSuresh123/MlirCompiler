@@ -3,11 +3,15 @@
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/InitAllPasses.h"
+
 
 #include "Compiler/Dialect/nova/NovaDialect.h"
 #include "Compiler/Dialect/nova/NovaOps.h"
 
 int main(int argc, char **argv) {
+  mlir::registerAllPasses();
+
   mlir::DialectRegistry registry;
   
   // Register only the dialects we need

@@ -56,5 +56,20 @@ bool isBroadcastCompatible(llvm::ArrayRef<int64_t> lhsShape,
   return computeBroadcastShape(lhsShape, rhsShape).has_value();
 }
 
+llvm::SmallVector<int64_t> computeBroadcastDimensions(
+    int64_t operandRank, int64_t resultRank) {
+  llvm::SmallVector<int64_t> broadcastDims;
+  
+  // Compute the rank difference
+  int64_t rankDiff = resultRank - operandRank;
+  
+  // Map operand dimensions to result dimensions (trailing alignment)
+  for (int64_t i = 0; i < operandRank; ++i) {
+    broadcastDims.push_back(rankDiff + i);
+  }
+  
+  return broadcastDims;
+}
+
 }
 }
