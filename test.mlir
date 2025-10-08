@@ -1,5 +1,5 @@
 
-  // Test 2: Complex expression: (a + b) * (c - d)
+  // Test 2: Complex expression: (a + b) * (c - d)//
   func.func @test_complex_expr(%a: tensor<2x3xf32>, %b: tensor<3xf32>, 
                                 %c: tensor<2x3xf32>, %d: tensor<3xf32>) -> tensor<2x3xf32> {
     %0 = nova.add %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
