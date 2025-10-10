@@ -1,0 +1,27 @@
+# Ignore build directory
+build/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.make
+*.cmake
+*.dir/
+*.a
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Ignore generated configs
+compile_commands.json
+tablegen_compile_commands.yml
+
+# IDE / OS-specific
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
