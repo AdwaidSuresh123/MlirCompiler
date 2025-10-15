@@ -12,6 +12,9 @@ target_link_libraries(nova-opt PRIVATE
   MLIRTransformUtils
   MLIRMlirOptMain
   MLIRNova
+
+  CompilerTransforms
+
   # Add all MLIR dialects
   MLIRFuncDialect
   MLIRArithDialect
