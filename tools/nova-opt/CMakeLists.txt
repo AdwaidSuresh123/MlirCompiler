@@ -14,6 +14,7 @@ target_link_libraries(nova-opt PRIVATE
   MLIRNova
 
   CompilerTransforms
+  AffineFullUnroll 
 
   # Add all MLIR dialects
   MLIRFuncDialect

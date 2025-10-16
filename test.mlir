@@ -1,4 +1,3 @@
-// test_with_main.mlir
 module {
   func.func @matmul(%A: tensor<128x128xf32>, 
                     %B: tensor<128x128xf32>) -> tensor<128x128xf32> {
@@ -14,15 +13,26 @@ module {
     // Create input tensors
     %cst_0 = arith.constant 1.000000e+00 : f32
     %cst_1 = arith.constant 2.000000e+00 : f32
+    %expected = arith.constant 256.000000e+00 : f32  // 128 * 2.0
     
     %A = tensor.splat %cst_0 : tensor<128x128xf32>
     %B = tensor.splat %cst_1 : tensor<128x128xf32>
     
     // Call matmul
     %result = call @matmul(%A, %B) : (tensor<128x128xf32>, tensor<128x128xf32>) -> tensor<128x128xf32>
+
+    // Verify result instead of printing
+    %c0 = arith.constant 0 : index
+    %first_element = tensor.extract %result[%c0, %c0] : tensor<128x128xf32>
     
-    // Return success
-    %ret = arith.constant 0 : i32
+    // Check if result is correct (256.0)
+    %is_correct = arith.cmpf "oeq", %first_element, %expected : f32
+    
+    // Return 0 if correct, 1 if wrong
+    %success = arith.constant 0 : i32
+    %failure = arith.constant 1 : i32
+    %ret = arith.select %is_correct, %success, %failure : i32
+
     return %ret : i32
   }
 }
