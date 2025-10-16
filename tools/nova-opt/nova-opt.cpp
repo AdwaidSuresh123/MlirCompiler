@@ -12,6 +12,14 @@
 #include "Compiler/Dialect/nova/NovaDialect.h"
 #include "Compiler/Dialect/nova/NovaOps.h"
 #include "Compiler/Transforms/CleanupPass.h"
+#include "Compiler/Transforms/AffineFullUnroll.h"
+
+namespace mlir {
+namespace nova {
+#define GEN_PASS_REGISTRATION
+#include "Compiler/Transforms/Passes.h.inc"
+} 
+}
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
@@ -29,6 +37,8 @@ int main(int argc, char **argv) {
   // Register only the dialects we need
   registry.insert<mlir::nova::NovaDialect>();
   mlir::registerAllDialects(registry);
+
+  mlir::nova::registerAffinePasses();
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "Nova dialect optimizer\n", registry));
