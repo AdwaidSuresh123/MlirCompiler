@@ -79,6 +79,29 @@ static LogicalResult inferBinaryElementwiseReturnTypes(
   return success();
 }
 
+/// Generic verify for all binary ops
+template<typename OpType>
+static LogicalResult verifyBinaryOp(OpType op) {
+  auto lhsType = op.getLhs().getType();
+  auto rhsType = op.getRhs().getType();
+  auto resultType = op.getResult().getType();
+  
+  if (!isa<TensorType>(lhsType) || !isa<TensorType>(rhsType) || 
+      !isa<TensorType>(resultType)) {
+    return op.emitOpError("operands and result must be tensor types");
+  }
+  
+  auto lhsElementType = cast<TensorType>(lhsType).getElementType();
+  auto rhsElementType = cast<TensorType>(rhsType).getElementType();
+  auto resultElementType = cast<TensorType>(resultType).getElementType();
+  
+  if (lhsElementType != rhsElementType || lhsElementType != resultElementType) {
+    return op.emitOpError("operands and result must have the same element type");
+  }
+  
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // BroadcastInDimOp
 //===----------------------------------------------------------------------===//
@@ -133,102 +156,6 @@ LogicalResult BroadcastInDimOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// Generic Binary Op Implementation (used by all binary ops)
-//===----------------------------------------------------------------------===//
-
-// Generic verify for all binary ops
-template<typename OpType>
-static LogicalResult verifyBinaryOp(OpType op) {
-  auto lhsType = op.getLhs().getType();
-  auto rhsType = op.getRhs().getType();
-  auto resultType = op.getResult().getType();
-  
-  if (!isa<TensorType>(lhsType) || !isa<TensorType>(rhsType) || 
-      !isa<TensorType>(resultType)) {
-    return op.emitOpError("operands and result must be tensor types");
-  }
-  
-  auto lhsElementType = cast<TensorType>(lhsType).getElementType();
-  auto rhsElementType = cast<TensorType>(rhsType).getElementType();
-  auto resultElementType = cast<TensorType>(resultType).getElementType();
-  
-  if (lhsElementType != rhsElementType || lhsElementType != resultElementType) {
-    return op.emitOpError("operands and result must have the same element type");
-  }
-  
-  return success();
-}
-
-// Generic canonicalization pattern for all binary ops
-template<typename OpType>
-struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
-  using OpRewritePattern<OpType>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(OpType op,
-                                PatternRewriter &rewriter) const override {
-    auto lhsType = dyn_cast<RankedTensorType>(op.getLhs().getType());
-    auto rhsType = dyn_cast<RankedTensorType>(op.getRhs().getType());
-    auto resultType = dyn_cast<RankedTensorType>(op.getResult().getType());
-
-    if (!lhsType || !rhsType || !resultType) {
-      return failure();
-    }
-
-    if (lhsType.getShape() == resultType.getShape() &&
-        rhsType.getShape() == resultType.getShape()) {
-      return failure();
-    }
-
-    Value newLhs = op.getLhs();
-    Value newRhs = op.getRhs();
-    bool changed = false;
-
-    if (lhsType.getShape() != resultType.getShape()) {
-      if (lhsType.getRank() > resultType.getRank()) {
-        return failure();
-      }
-      if (!isBroadcastCompatible(lhsType.getShape(), resultType.getShape())) {
-        return failure();
-      }
-      
-      auto broadcastDims = computeBroadcastDimensions(
-          lhsType.getRank(), resultType.getRank());
-      
-      auto broadcastDimsAttr = rewriter.getI64ArrayAttr(broadcastDims);
-      
-      newLhs = rewriter.create<BroadcastInDimOp>(
-          op.getLoc(), resultType, newLhs, broadcastDimsAttr).getResult();
-      changed = true;
-    }
-
-    if (rhsType.getShape() != resultType.getShape()) {
-      if (rhsType.getRank() > resultType.getRank()) {
-        return failure();
-      }
-      if (!isBroadcastCompatible(rhsType.getShape(), resultType.getShape())) {
-        return failure();
-      }
-      
-      auto broadcastDims = computeBroadcastDimensions(
-          rhsType.getRank(), resultType.getRank());
-      
-      auto broadcastDimsAttr = rewriter.getI64ArrayAttr(broadcastDims);
-      
-      newRhs = rewriter.create<BroadcastInDimOp>(
-          op.getLoc(), resultType, newRhs, broadcastDimsAttr).getResult();
-      changed = true;
-    }
-
-    if (!changed) {
-      return failure();
-    }
-
-    rewriter.replaceOpWithNewOp<OpType>(op, op.getResult().getType(), newLhs, newRhs);
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
 
@@ -240,11 +167,6 @@ LogicalResult AddOp::inferReturnTypes(
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
   return inferBinaryElementwiseReturnTypes<AddOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
-}
-
-void AddOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<AddOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//
@@ -261,11 +183,6 @@ LogicalResult SubOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-void SubOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<SubOp>>(context);
-}
-
 //===----------------------------------------------------------------------===//
 // MulOp
 //===----------------------------------------------------------------------===//
@@ -278,11 +195,6 @@ LogicalResult MulOp::inferReturnTypes(
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
   return inferBinaryElementwiseReturnTypes<MulOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
-}
-
-void MulOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<MulOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//
@@ -299,11 +211,6 @@ LogicalResult DivOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-void DivOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<DivOp>>(context);
-}
-
 //===----------------------------------------------------------------------===//
 // RemOp
 //===----------------------------------------------------------------------===//
@@ -316,11 +223,6 @@ LogicalResult RemOp::inferReturnTypes(
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
   return inferBinaryElementwiseReturnTypes<RemOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
-}
-
-void RemOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<RemOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//
@@ -337,11 +239,6 @@ LogicalResult PowOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-void PowOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<PowOp>>(context);
-}
-
 //===----------------------------------------------------------------------===//
 // MaxOp
 //===----------------------------------------------------------------------===//
@@ -354,11 +251,6 @@ LogicalResult MaxOp::inferReturnTypes(
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
   return inferBinaryElementwiseReturnTypes<MaxOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
-}
-
-void MaxOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<MaxOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//
@@ -375,11 +267,6 @@ LogicalResult MinOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-void MinOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<MinOp>>(context);
-}
-
 //===----------------------------------------------------------------------===//
 // AndOp
 //===----------------------------------------------------------------------===//
@@ -392,11 +279,6 @@ LogicalResult AndOp::inferReturnTypes(
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
   return inferBinaryElementwiseReturnTypes<AndOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
-}
-
-void AndOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<AndOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//
@@ -413,11 +295,6 @@ LogicalResult OrOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-void OrOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<OrOp>>(context);
-}
-
 //===----------------------------------------------------------------------===//
 // XorOp
 //===----------------------------------------------------------------------===//
@@ -430,9 +307,4 @@ LogicalResult XorOp::inferReturnTypes(
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
   return inferBinaryElementwiseReturnTypes<XorOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
-}
-
-void XorOp::getCanonicalizationPatterns(RewritePatternSet &results, 
-                                        MLIRContext *context) {
-  results.add<InsertBroadcastPattern<XorOp>>(context);
 }

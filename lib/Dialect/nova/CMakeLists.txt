@@ -2,6 +2,7 @@
 add_mlir_dialect_library(MLIRNova
   NovaDialect.cpp
   NovaOps.cpp
+  NovaCanonicalizations.cpp
   Broadcast.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -14,6 +15,7 @@ add_mlir_dialect_library(MLIRNova
   MLIRIR
   MLIRInferTypeOpInterface
   MLIRSideEffectInterfaces
+  MLIRArithDialect
 )
 
 target_include_directories(MLIRNova PRIVATE

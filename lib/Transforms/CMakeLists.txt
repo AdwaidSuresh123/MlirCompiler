@@ -7,4 +7,8 @@ add_mlir_library(CompilerTransforms
   MLIRPass
   MLIRLLVMDialect
   MLIRTransformUtils
+  MLIRNova
+  MLIRArithDialect
+  MLIRMathDialect 
+  MLIRFuncDialect       
 )
