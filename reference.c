@@ -1,49 +1,48 @@
-// reference_matmul.c
-#include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#define N 512
 
-void simple_matmul(float* A, float* B, float* C, int N) {
+void matmul(float A[N][N], float B[N][N], float C[N][N]) {
+    // Initialize C to 0.0 (equivalent to linalg.fill)
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
-            float sum = 0.0f;
+            C[i][j] = 0.0f;
+        }
+    }
+
+    // Exact matmul (equivalent to linalg.matmul)
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
             for (int k = 0; k < N; k++) {
-                sum += A[i * N + k] * B[k * N + j];
+                C[i][j] += A[i][k] * B[k][j];
             }
-            C[i * N + j] = sum;
         }
     }
 }
 
 int main() {
-    const int N = 128;
-    const int size = N * N;
+    // Create input tensors (equivalent to tensor.splat)
+    float A[N][N];
+    float B[N][N];
+    float C[N][N];
     
-    float* A = malloc(size * sizeof(float));
-    float* B = malloc(size * sizeof(float));
-    float* C = malloc(size * sizeof(float));
-    
-    // Initialize
-    for (int i = 0; i < size; i++) {
-        A[i] = 1.0f;
-        B[i] = 2.0f;
+    // Initialize A with 1.0 and B with 2.0
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            A[i][j] = 1.0f;
+            B[i][j] = 2.0f;
+        }
     }
+    // Call matmul
+    matmul(A, B, C);
     
-    clock_t start = clock();
-    simple_matmul(A, B, C, N);
-    clock_t end = clock();
+    // Verify result 
+    float first_element = C[0][0];
+    float expected = 1024.0f;  // 128 * 2.0
     
-    double time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-    double flops = 2.0 * N * N * N;
-    double mflops = flops / time_used / 1e6;
-    
-    printf("Reference C implementation:\n");
-    printf("Time: %.6f seconds\n", time_used);
-    printf("Performance: %.2f MFLOPS\n", mflops);
-    printf("Result check: C[0] = %f (expected: %f)\n", C[0], 256.0f);
-    
-    free(A);
-    free(B);
-    free(C);
-    return 0;
+    // Return 0 if correct, 1 if wrong (exact same logic)
+    if (first_element == expected) {
+        return 0;
+    } else {
+        return 1;
+    }
 }
