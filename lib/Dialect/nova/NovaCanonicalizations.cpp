@@ -6,6 +6,8 @@
 #include "Compiler/Dialect/nova/Broadcast.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/TypeUtilities.h"
 
 using namespace mlir;
 using namespace mlir::nova;
@@ -92,13 +94,12 @@ struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
 struct EliminateAddZero : public OpRewritePattern<AddOp> {
   using OpRewritePattern<AddOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(AddOp op,
-                                PatternRewriter &rewriter) const override {
-    // Check if RHS is a zero constant
+  LogicalResult matchAndRewrite(AddOp op, PatternRewriter &rewriter) const override {
+
+    // Check if RHS is a zero
     if (auto rhsDefOp = op.getRhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(rhsDefOp.getValue())) {
-        if (denseAttr.isSplat() && 
-            denseAttr.getSplatValue<APFloat>().isZero()) {
+        if (denseAttr.isSplat() && isSplatZero(denseAttr)) {
           rewriter.replaceOp(op, op.getLhs());
           return success();
         }
@@ -108,8 +109,7 @@ struct EliminateAddZero : public OpRewritePattern<AddOp> {
     // Check if LHS is zero
     if (auto lhsDefOp = op.getLhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(lhsDefOp.getValue())) {
-        if (denseAttr.isSplat() && 
-            denseAttr.getSplatValue<APFloat>().isZero()) {
+        if (denseAttr.isSplat() && isSplatZero(denseAttr)) {
           rewriter.replaceOp(op, op.getRhs());
           return success();
         }
@@ -117,6 +117,20 @@ struct EliminateAddZero : public OpRewritePattern<AddOp> {
     }
 
     return failure();
+  }
+
+private:
+  bool isSplatZero(DenseElementsAttr attr) const {
+    auto elementType = attr.getElementType();
+    if (isa<FloatType>(elementType)) {
+      APFloat val = attr.getSplatValue<APFloat>();
+      return val.isZero();
+    } 
+    else if (isa<IntegerType>(elementType)) {
+      APInt val = attr.getSplatValue<APInt>();
+      return val.isZero();
+    }
+    return false;
   }
 };
 
@@ -126,36 +140,67 @@ struct CombineAddConstants : public OpRewritePattern<AddOp> {
 
   LogicalResult matchAndRewrite(AddOp op,
                                 PatternRewriter &rewriter) const override {
-    auto lhsAdd = op.getLhs().getDefiningOp<AddOp>();
-    if (!lhsAdd)
-      return failure();
-
+    // Check if outer RHS is constant
     auto rhsConst = op.getRhs().getDefiningOp<arith::ConstantOp>();
     if (!rhsConst)
       return failure();
 
-    auto lhsRhsConst = lhsAdd.getRhs().getDefiningOp<arith::ConstantOp>();
-    if (!lhsRhsConst)
+    // Check if LHS is another addition
+    auto lhsAdd = op.getLhs().getDefiningOp<AddOp>();
+    if (!lhsAdd)
+      return failure();
+
+    // For checking both operands
+    arith::ConstantOp innerConst = nullptr;
+    Value otherOperand;
+
+    // Constant on RHS of inner add
+    if (auto rhsInnerConst = lhsAdd.getRhs().getDefiningOp<arith::ConstantOp>()) {
+      innerConst = rhsInnerConst;
+      otherOperand = lhsAdd.getLhs();
+    }
+    // Constant on LHS of inner add  
+    else if (auto lhsInnerConst = lhsAdd.getLhs().getDefiningOp<arith::ConstantOp>()) {
+      innerConst = lhsInnerConst;
+      otherOperand = lhsAdd.getRhs();
+    }
+    
+    if (!innerConst)
       return failure();
 
     auto rhsAttr = dyn_cast<DenseElementsAttr>(rhsConst.getValue());
-    auto lhsRhsAttr = dyn_cast<DenseElementsAttr>(lhsRhsConst.getValue());
+    auto innerAttr = dyn_cast<DenseElementsAttr>(innerConst.getValue());
     
-    if (!rhsAttr || !lhsRhsAttr || !rhsAttr.isSplat() || !lhsRhsAttr.isSplat())
+    if (!rhsAttr || !innerAttr || !rhsAttr.isSplat() || !innerAttr.isSplat())
       return failure();
 
-    APFloat val1 = rhsAttr.getSplatValue<APFloat>();
-    APFloat val2 = lhsRhsAttr.getSplatValue<APFloat>();
-    APFloat combined = val1;
-    combined.add(val2, APFloat::rmNearestTiesToEven);
+    if (rhsAttr.getElementType() != innerAttr.getElementType())
+      return failure();
 
-    auto newConstAttr = DenseElementsAttr::get(
-        cast<ShapedType>(rhsConst.getType()), combined);
-    auto newConst = rewriter.create<arith::ConstantOp>(
-        op.getLoc(), newConstAttr);
+    TypedAttr newConstAttr;
+    auto elementType = rhsAttr.getElementType();
+    
+    if (isa<FloatType>(elementType)) {
+      APFloat val1 = rhsAttr.getSplatValue<APFloat>();
+      APFloat val2 = innerAttr.getSplatValue<APFloat>();
+      APFloat combined = val1;
+      combined.add(val2, APFloat::rmNearestTiesToEven);
+      newConstAttr = DenseElementsAttr::get(cast<ShapedType>(rhsConst.getType()), combined);
+      
+    } else if (isa<IntegerType>(elementType)) {
+      APInt val1 = rhsAttr.getSplatValue<APInt>();
+      APInt val2 = innerAttr.getSplatValue<APInt>();
+      APInt combined = val1 + val2;  // Integer addition is exact
+      newConstAttr = DenseElementsAttr::get(cast<ShapedType>(rhsConst.getType()), combined);
+      
+    } else {
+      return failure();
+    }
 
-    rewriter.replaceOpWithNewOp<AddOp>(
-        op, op.getType(), lhsAdd.getLhs(), newConst);
+    auto newConst = rewriter.create<arith::ConstantOp>(op.getLoc(), newConstAttr);
+
+    // Replace with new addition
+    rewriter.replaceOpWithNewOp<AddOp>(op, op.getType(), otherOperand, newConst);
 
     return success();
   }
@@ -173,14 +218,27 @@ struct EliminateSubZero : public OpRewritePattern<SubOp> {
                                 PatternRewriter &rewriter) const override {
     if (auto rhsDefOp = op.getRhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(rhsDefOp.getValue())) {
-        if (denseAttr.isSplat() && 
-            denseAttr.getSplatValue<APFloat>().isZero()) {
+        if (denseAttr.isSplat() && isSplatZero(denseAttr)) {
           rewriter.replaceOp(op, op.getLhs());
           return success();
         }
       }
     }
     return failure();
+  }
+
+private:
+  bool isSplatZero(DenseElementsAttr attr) const {
+    auto elementType = attr.getElementType();
+
+    if (isa<FloatType>(elementType)) {
+      APFloat value = attr.getSplatValue<APFloat>();
+      return value.isZero();
+    } else if (isa<IntegerType>(elementType)) {
+      APInt value = attr.getSplatValue<APInt>();
+      return value.isZero();
+    }
+    return false;
   }
 };
 
@@ -194,11 +252,19 @@ struct EliminateSubSelf : public OpRewritePattern<SubOp> {
       return failure();
 
     auto resultType = cast<ShapedType>(op.getResult().getType());
-    auto zeroAttr = DenseElementsAttr::get(
-        resultType,
-        rewriter.getFloatAttr(resultType.getElementType(), 0.0));
+    auto elementType = resultType.getElementType();
     
-    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, zeroAttr);
+    TypedAttr zeroAttr;
+    if (isa<FloatType>(elementType)) {
+      zeroAttr = rewriter.getFloatAttr(elementType, 0.0);
+    } else if (isa<IntegerType>(elementType)) {
+      zeroAttr = rewriter.getIntegerAttr(elementType, 0);
+    } else {
+      return failure();
+    }
+    
+    auto denseZeroAttr = DenseElementsAttr::get(resultType, zeroAttr);
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, denseZeroAttr);
     return success();
   }
 };
@@ -211,33 +277,42 @@ struct EliminateSubSelf : public OpRewritePattern<SubOp> {
 struct EliminateMulOne : public OpRewritePattern<MulOp> {
   using OpRewritePattern<MulOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MulOp op,
-                                PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(MulOp op, PatternRewriter &rewriter) const override {
+    // Check RHS for constant 1
     if (auto rhsDefOp = op.getRhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(rhsDefOp.getValue())) {
-        if (denseAttr.isSplat()) {
-          APFloat val = denseAttr.getSplatValue<APFloat>();
-          if (val.isExactlyValue(1.0)) {
-            rewriter.replaceOp(op, op.getLhs());
-            return success();
-          }
+        if (denseAttr.isSplat() && isSplatOne(denseAttr)) {
+          rewriter.replaceOp(op, op.getLhs());
+          return success();
         }
       }
     }
 
+    // Check LHS for constant 1
     if (auto lhsDefOp = op.getLhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(lhsDefOp.getValue())) {
-        if (denseAttr.isSplat()) {
-          APFloat val = denseAttr.getSplatValue<APFloat>();
-          if (val.isExactlyValue(1.0)) {
-            rewriter.replaceOp(op, op.getRhs());
-            return success();
-          }
+        if (denseAttr.isSplat() && isSplatOne(denseAttr)) {
+          rewriter.replaceOp(op, op.getRhs());
+          return success();
         }
       }
     }
 
     return failure();
+  }
+
+private:
+  bool isSplatOne(DenseElementsAttr attr) const {
+    auto elementType = attr.getElementType();
+    
+    if (isa<FloatType>(elementType)) {
+      APFloat value = attr.getSplatValue<APFloat>();
+      return value.isExactlyValue(1.0);
+    } else if (isa<IntegerType>(elementType)) {
+      APInt value = attr.getSplatValue<APInt>();
+      return value.isOne();
+    }
+    return false;
   }
 };
 
@@ -245,24 +320,23 @@ struct EliminateMulOne : public OpRewritePattern<MulOp> {
 struct EliminateMulZero : public OpRewritePattern<MulOp> {
   using OpRewritePattern<MulOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MulOp op,
-                                PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(MulOp op, PatternRewriter &rewriter) const override {
     Value zeroOperand = nullptr;
     
+    // Check RHS for zero constant
     if (auto rhsDefOp = op.getRhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(rhsDefOp.getValue())) {
-        if (denseAttr.isSplat() && 
-            denseAttr.getSplatValue<APFloat>().isZero()) {
+        if (denseAttr.isSplat() && isSplatZero(denseAttr)) {
           zeroOperand = op.getRhs();
         }
       }
     }
 
+    // Check LHS for zero constant
     if (!zeroOperand) {
       if (auto lhsDefOp = op.getLhs().getDefiningOp<arith::ConstantOp>()) {
         if (auto denseAttr = dyn_cast<DenseElementsAttr>(lhsDefOp.getValue())) {
-          if (denseAttr.isSplat() && 
-              denseAttr.getSplatValue<APFloat>().isZero()) {
+          if (denseAttr.isSplat() && isSplatZero(denseAttr)) {
             zeroOperand = op.getLhs();
           }
         }
@@ -276,44 +350,88 @@ struct EliminateMulZero : public OpRewritePattern<MulOp> {
 
     return failure();
   }
+
+private:
+  bool isSplatZero(DenseElementsAttr attr) const {
+    auto elementType = attr.getElementType();
+    
+    if (isa<FloatType>(elementType)) {
+      APFloat value = attr.getSplatValue<APFloat>();
+      return value.isZero();
+    } else if (isa<IntegerType>(elementType)) {
+      APInt value = attr.getSplatValue<APInt>();
+      return value.isZero();
+    }
+    return false;
+  }
 };
 
 /// Combine consecutive multiplications: (A * c1) * c2 -> A * (c1 * c2)
 struct CombineMulConstants : public OpRewritePattern<MulOp> {
   using OpRewritePattern<MulOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MulOp op,
-                                PatternRewriter &rewriter) const override {
-    auto lhsMul = op.getLhs().getDefiningOp<MulOp>();
-    if (!lhsMul)
-      return failure();
-
+  LogicalResult matchAndRewrite(MulOp op, PatternRewriter &rewriter) const override {
+    // Check if outer RHS is constant
     auto rhsConst = op.getRhs().getDefiningOp<arith::ConstantOp>();
     if (!rhsConst)
       return failure();
 
-    auto lhsRhsConst = lhsMul.getRhs().getDefiningOp<arith::ConstantOp>();
-    if (!lhsRhsConst)
+    // Check if LHS is another multiplication
+    auto lhsMul = op.getLhs().getDefiningOp<MulOp>();
+    if (!lhsMul)
       return failure();
 
-    auto rhsAttr = dyn_cast<DenseElementsAttr>(rhsConst.getValue());
-    auto lhsRhsAttr = dyn_cast<DenseElementsAttr>(lhsRhsConst.getValue());
+    // checking to find constant in inner mul
+    arith::ConstantOp innerConst = nullptr;
+    Value otherOperand;
+
+    // Constant on RHS of inner mul
+    if (auto rhsInnerConst = lhsMul.getRhs().getDefiningOp<arith::ConstantOp>()) {
+      innerConst = rhsInnerConst;
+      otherOperand = lhsMul.getLhs();
+    }
+    // Constant on LHS of inner mul  
+    else if (auto lhsInnerConst = lhsMul.getLhs().getDefiningOp<arith::ConstantOp>()) {
+      innerConst = lhsInnerConst;
+      otherOperand = lhsMul.getRhs();
+    }
     
-    if (!rhsAttr || !lhsRhsAttr || !rhsAttr.isSplat() || !lhsRhsAttr.isSplat())
+    if (!innerConst)
       return failure();
 
-    APFloat val1 = rhsAttr.getSplatValue<APFloat>();
-    APFloat val2 = lhsRhsAttr.getSplatValue<APFloat>();
-    APFloat combined = val1;
-    combined.multiply(val2, APFloat::rmNearestTiesToEven);
+    // Extract and validate both constants
+    auto rhsAttr = dyn_cast<DenseElementsAttr>(rhsConst.getValue());
+    auto innerAttr = dyn_cast<DenseElementsAttr>(innerConst.getValue());
+    
+    if (!rhsAttr || !innerAttr || !rhsAttr.isSplat() || !innerAttr.isSplat())
+      return failure();
 
-    auto newConstAttr = DenseElementsAttr::get(
-        cast<ShapedType>(rhsConst.getType()), combined);
-    auto newConst = rewriter.create<arith::ConstantOp>(
-        op.getLoc(), newConstAttr);
+    // Check if types are compatible
+    if (rhsAttr.getElementType() != innerAttr.getElementType())
+      return failure();
 
-    rewriter.replaceOpWithNewOp<MulOp>(
-        op, op.getType(), lhsMul.getLhs(), newConst);
+    TypedAttr newConstAttr;
+    auto elementType = rhsAttr.getElementType();
+    
+    if (isa<FloatType>(elementType)) {
+      APFloat val1 = rhsAttr.getSplatValue<APFloat>();
+      APFloat val2 = innerAttr.getSplatValue<APFloat>();
+      APFloat combined = val1;
+      combined.multiply(val2, APFloat::rmNearestTiesToEven);
+      newConstAttr = DenseElementsAttr::get(cast<ShapedType>(rhsConst.getType()), combined);
+      
+    } else if (isa<IntegerType>(elementType)) {
+      APInt val1 = rhsAttr.getSplatValue<APInt>();
+      APInt val2 = innerAttr.getSplatValue<APInt>();
+      APInt combined = val1 * val2; 
+      newConstAttr = DenseElementsAttr::get(cast<ShapedType>(rhsConst.getType()), combined);
+      
+    } else {
+      return failure();
+    }
+
+    auto newConst = rewriter.create<arith::ConstantOp>(op.getLoc(), newConstAttr);
+    rewriter.replaceOpWithNewOp<MulOp>(op, op.getType(), otherOperand, newConst);
 
     return success();
   }
@@ -323,24 +441,35 @@ struct CombineMulConstants : public OpRewritePattern<MulOp> {
 // DivOp Canonicalization Patterns
 //===----------------------------------------------------------------------===//
 
-/// Eliminate A / 1 -> A
+//// Eliminate A / 1 -> A
 struct EliminateDivOne : public OpRewritePattern<DivOp> {
   using OpRewritePattern<DivOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(DivOp op,
-                                PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(DivOp op, PatternRewriter &rewriter) const override {
+    // Only check RHS - division is NOT commutative
     if (auto rhsDefOp = op.getRhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(rhsDefOp.getValue())) {
-        if (denseAttr.isSplat()) {
-          APFloat val = denseAttr.getSplatValue<APFloat>();
-          if (val.isExactlyValue(1.0)) {
-            rewriter.replaceOp(op, op.getLhs());
-            return success();
-          }
+        if (denseAttr.isSplat() && isSplatOne(denseAttr)) {
+          rewriter.replaceOp(op, op.getLhs());
+          return success();
         }
       }
     }
     return failure();
+  }
+
+private:
+  bool isSplatOne(DenseElementsAttr attr) const {
+    auto elementType = attr.getElementType();
+    
+    if (isa<FloatType>(elementType)) {
+      APFloat value = attr.getSplatValue<APFloat>();
+      return value.isExactlyValue(1.0);
+    } else if (isa<IntegerType>(elementType)) {
+      APInt value = attr.getSplatValue<APInt>();
+      return value.isOne();
+    }
+    return false;
   }
 };
 
