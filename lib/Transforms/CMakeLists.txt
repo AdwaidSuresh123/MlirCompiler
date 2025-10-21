@@ -1,6 +1,7 @@
 # Add CleanupPass to the list of sources
 add_mlir_library(CompilerTransforms
   CleanupPass.cpp
+  FuseMatmulInit.cpp
 
   LINK_LIBS PUBLIC
   MLIRIR
@@ -10,5 +11,7 @@ add_mlir_library(CompilerTransforms
   MLIRNova
   MLIRArithDialect
   MLIRMathDialect 
-  MLIRFuncDialect       
+  MLIRFuncDialect  
+  MLIRAffineDialect
+  MLIRMemRefDialect     
 )
