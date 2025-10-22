@@ -1,15 +1,13 @@
-//===----------------------------------------------------------------------===//
-// FuseMatmulInit.cpp - Fuse initialization with matmul computation
-//===----------------------------------------------------------------------===//
-
 #include "Compiler/Transforms/FuseMatmulInit.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"  // ADD THIS!
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Dominance.h"
+#include "mlir/IR/IRMapping.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "fuse-matmul-init"
@@ -28,135 +26,199 @@ struct FuseMatmulInitPass
   void runOnOperation() override {
     auto func = getOperation();
     
-    // Collect all top-level affine loops
-    SmallVector<AffineForOp> topLevelLoops;
-    func.walk([&](AffineForOp loop) {
-      // Only top-level loops (no parent affine.for)
-      if (!loop->getParentOfType<AffineForOp>()) {
-        topLevelLoops.push_back(loop);
+    llvm::errs() << "=== FuseMatmulInit Pass Starting on function: " 
+                 << func.getName() << " ===\n";
+    
+    // Collect all top-level affine.for loops
+    SmallVector<AffineForOp, 2> topLevelLoops;
+    for (auto &op : func.getBody().front()) {
+      if (auto forOp = dyn_cast<AffineForOp>(op)) {
+        topLevelLoops.push_back(forOp);
       }
-    });
-    
-    if (topLevelLoops.size() < 2) {
-      return; // Need at least 2 loops to fuse
     }
     
-    // Pattern: First loop is initialization, second is computation
-    AffineForOp initLoop = topLevelLoops[0];
-    AffineForOp computeLoop = topLevelLoops[1];
+    llvm::errs() << "Found " << topLevelLoops.size() << " top-level loops\n";
     
-    // Verify this is the init+matmul pattern
-    if (!isInitializationLoop(initLoop)) {
-      LLVM_DEBUG(llvm::dbgs() << "First loop is not initialization\n");
+    // Find initialization and computation loops
+    AffineForOp initLoop = nullptr;
+    AffineForOp computeLoop = nullptr;
+    
+    for (auto loop : topLevelLoops) {
+      if (isZeroInitializationLoop(loop)) {
+        initLoop = loop;
+        llvm::errs() << "Found initialization loop\n";
+      } else if (hasMatmulPattern(loop)) {
+        computeLoop = loop;
+        llvm::errs() << "Found computation loop\n";
+      }
+    }
+
+    if (!initLoop) {
+      llvm::errs() << "No initialization loop found - skipping\n";
       return;
     }
     
-    if (!hasMatchingBounds(initLoop, computeLoop)) {
-      LLVM_DEBUG(llvm::dbgs() << "Loops don't have matching bounds\n");
+    if (!computeLoop) {
+      llvm::errs() << "No computation loop found - skipping\n";
       return;
     }
     
-    // Find the buffer being initialized
-    Value buffer = findInitializedBuffer(initLoop);
-    if (!buffer) {
-      LLVM_DEBUG(llvm::dbgs() << "Could not find initialized buffer\n");
+    // Get the zero store and buffer
+    AffineStoreOp zeroStore = findZeroStore(initLoop);
+    Value resultBuffer = zeroStore ? zeroStore.getMemRef() : Value{};
+    if (!zeroStore || !resultBuffer) {
+      llvm::errs() << "Could not find zero store or result buffer\n";
+      return;
+    }
+
+    if (!usesBufferAsAccumulator(computeLoop, resultBuffer)) {
+      llvm::errs() << "Buffer not used as accumulator in compute loop\n";
       return;
     }
     
-    LLVM_DEBUG(llvm::dbgs() << "Fusing initialization with computation\n");
+    llvm::errs() << "Buffer is used as accumulator - proceeding with fusion\n";
     
-    // Replace loads from buffer with zero in the innermost loop
-    replaceInitialLoadsWithZero(computeLoop, buffer);
+    // Navigate the loop structure: I_O -> J_O -> I_I -> J_I -> K_O -> K_I
+    AffineForOp IOuter = computeLoop;  // computeLoop IS I_O
+    AffineForOp JOuter = getSingleChildAffineFor(IOuter); 
+    if (!JOuter) {
+      llvm::errs() << "Could not find J_O loop\n";
+      return;
+    }
     
-    // Erase the initialization loop
+    AffineForOp IInner = getSingleChildAffineFor(JOuter);
+    if (!IInner) {
+      llvm::errs() << "Could not find I_I loop\n";
+      return;
+    }
+    
+    AffineForOp JInner = getSingleChildAffineFor(IInner); 
+    if (!JInner) {
+      llvm::errs() << "Could not find J_I loop\n";
+      return;
+    }
+    
+    // K_O should be the child of J_I
+    AffineForOp KOuter = getSingleChildAffineFor(JInner);
+    if (!KOuter) {
+      llvm::errs() << "Could not find K_O loop\n";
+      return;
+    }
+    
+    llvm::errs() << "Successfully navigated loop structure\n";
+
+    Value I_inner_iv = IInner.getInductionVar();
+    Value J_inner_iv = JInner.getInductionVar();
+    
+    // Insert the zero-store operation BEFORE the K_O loop
+    OpBuilder builder(JInner.getBody(), JInner.getBody()->begin());
+    SmallVector<Value> mapOperands = {I_inner_iv, J_inner_iv};
+    
+    Value cst = zeroStore.getValue();
+
+    builder.create<AffineStoreOp>(
+        zeroStore.getLoc(),
+        cst, 
+        resultBuffer, 
+        zeroStore.getMap(), 
+        mapOperands
+    );
+
+    llvm::errs() << "Inserted initialization store\n";
+
+    // Erase the original initialization loop 
     initLoop.erase();
-    
-    LLVM_DEBUG(llvm::dbgs() << "Fusion complete\n");
+
+    llvm::errs() << "=== Fusion complete! ===\n";
   }
-  
+
 private:
-  /// Check if loop stores constant values (initialization pattern)
-  bool isInitializationLoop(AffineForOp loop) {
+  AffineForOp getSingleChildAffineFor(AffineForOp loop) {
+    auto block = loop.getBody();
+    for (Operation &op : *block) {
+        if (auto childLoop = dyn_cast<AffineForOp>(op)) {
+            return childLoop;
+        }
+    }
+    return nullptr;
+  }
+
+  // Check if a loop is the simple zero initialization loop
+  bool isZeroInitializationLoop(AffineForOp loop) {
     bool foundConstantStore = false;
     loop.walk([&](AffineStoreOp store) {
-      if (store.getValue().getDefiningOp<arith::ConstantOp>()) {
-        foundConstantStore = true;
+      if (auto constOp = store.getValue().getDefiningOp<arith::ConstantOp>()) {
+        if (auto floatAttr = dyn_cast<FloatAttr>(constOp.getValue())) {
+          if (floatAttr.getValueAsDouble() == 0.0) {
+            foundConstantStore = true;
+            return WalkResult::interrupt();
+          }
+        }
       }
+      return WalkResult::advance();
     });
     return foundConstantStore;
   }
   
-  /// Check if two loops have matching iteration bounds
-  bool hasMatchingBounds(AffineForOp loop1, AffineForOp loop2) {
-    // Check outer loops match
-    if (loop1.getConstantLowerBound() != loop2.getConstantLowerBound())
-      return false;
-    if (loop1.getConstantUpperBound() != loop2.getConstantUpperBound())
-      return false;
-    if (loop1.getStepAsInt() != loop2.getStepAsInt())
-      return false;
+  // Check if loop has matmul computation pattern (multiply + add)
+  bool hasMatmulPattern(AffineForOp loop) {
+    bool hasMul = false;
+    bool hasAdd = false;
     
-    return true;
-  }
-  
-  /// Find which buffer is being initialized
-  Value findInitializedBuffer(AffineForOp loop) {
-    Value buffer;
-    loop.walk([&](AffineStoreOp store) {
-      if (!buffer) {
-        buffer = store.getMemRef();
-      }
+    loop.walk([&](Operation *op) {
+      if (isa<arith::MulFOp>(op)) hasMul = true;
+      if (isa<arith::AddFOp>(op)) hasAdd = true;
+      if (hasMul && hasAdd) return WalkResult::interrupt();
+      return WalkResult::advance();
     });
-    return buffer;
+    
+    return hasMul && hasAdd;
   }
   
-  /// Replace the first load from buffer in inner loop with zero
-  void replaceInitialLoadsWithZero(AffineForOp outerLoop, Value buffer) {
-    // Walk to find the innermost k-loop (reduction loop)
-    outerLoop.walk([&](AffineForOp kLoop) {
-      // Check if this looks like the k-loop (has step 8)
-      if (kLoop.getStepAsInt() != 8)
-        return;
-      
-      // Inside the k-loop, find the first load from buffer
-      bool foundFirstLoad = false;
-      kLoop.walk([&](AffineLoadOp load) {
-        if (load.getMemRef() != buffer)
-          return;
-        
-        if (foundFirstLoad)
-          return; // Skip subsequent loads
-        
-        // This is the accumulator initialization - replace with zero
-        OpBuilder builder(load);
-        auto zeroType = cast<FloatType>(load.getType());
-        auto zero = builder.create<arith::ConstantOp>(
-            load.getLoc(),
-            builder.getFloatAttr(zeroType, 0.0));
-        
-        // Replace only uses in the same block (for accumulator init)
-        for (auto &use : llvm::make_early_inc_range(load->getUses())) {
-          if (auto addOp = dyn_cast<arith::AddFOp>(use.getOwner())) {
-            // This is the accumulator - replace load with zero
-            use.set(zero);
-            foundFirstLoad = true;
+  // Finds the single zero-store instruction in the initialization loop nest
+  AffineStoreOp findZeroStore(AffineForOp loop) {
+    AffineStoreOp zeroStore = nullptr;
+    loop.walk([&](AffineStoreOp store) {
+        if (auto constOp = store.getValue().getDefiningOp<arith::ConstantOp>()) {
+            if (auto floatAttr = dyn_cast<FloatAttr>(constOp.getValue())) {
+                if (floatAttr.getValueAsDouble() == 0.0) {
+                    zeroStore = store;
+                    return WalkResult::interrupt();
+                }
+            }
+        }
+        return WalkResult::advance();
+    });
+    return zeroStore;
+  }
+
+  // Check if the buffer is used as an accumulator in the compute loop
+  bool usesBufferAsAccumulator(AffineForOp loop, Value buffer) {
+    bool found = false;
+    loop.walk([&](AffineLoadOp load) {
+      if (load.getMemRef() == buffer) {
+        for (auto user : load->getUsers()) {
+          if (isa<arith::AddFOp>(user)) {
+            found = true;
+            return WalkResult::interrupt();
           }
         }
-      });
+      }
+      return WalkResult::advance();
     });
+    return found;
   }
   
   StringRef getArgument() const final { return "fuse-matmul-init"; }
   
   StringRef getDescription() const final {
-    return "Fuse matmul initialization loop with computation loop";
+    return "Fuse matmul initialization store into tiled computation loop.";
   }
 };
 
+std::unique_ptr<mlir::Pass> createFuseMatmulInit() {
+  return std::make_unique<FuseMatmulInitPass>();
+}
+
 } // namespace nova
 } // namespace mlir
-
-// Factory function
-std::unique_ptr<mlir::Pass> mlir::nova::createFuseMatmulInit() {
-  return std::make_unique<mlir::nova::FuseMatmulInitPass>();
-}

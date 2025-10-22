@@ -25,4 +25,18 @@ def FuseMatmulInit : Pass<"fuse-matmul-init", "func::FuncOp"> {
     ];
 }
 
+def PromoteAccumulator : Pass<"promote-accumulator", "func::FuncOp"> {
+    let summary = "Promote memory-based accumulators to registers";
+    let description = [{
+        Finds patterns where a memory location is used as an accumulator
+        in a reduction loop and converts it to use iter_args instead,
+        keeping the accumulator in registers for better performance.
+    }];
+    let dependentDialects = [
+        "mlir::affine::AffineDialect",
+        "mlir::arith::ArithDialect",
+        "mlir::memref::MemRefDialect"
+    ];
+}
+
 #endif // NOVA_TRANSFORMS_PASSES
