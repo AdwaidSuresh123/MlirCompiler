@@ -2,6 +2,7 @@
 add_mlir_library(CompilerTransforms
   CleanupPass.cpp
   FuseMatmulInit.cpp
+  PromoteAccumulator.cpp
 
   LINK_LIBS PUBLIC
   MLIRIR
