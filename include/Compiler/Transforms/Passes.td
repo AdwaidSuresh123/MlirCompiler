@@ -25,18 +25,13 @@ def FuseMatmulInit : Pass<"fuse-matmul-init", "func::FuncOp"> {
     ];
 }
 
-def PromoteAccumulator : Pass<"promote-accumulator", "func::FuncOp"> {
-    let summary = "Promote memory-based accumulators to registers";
+def FastmathFlag : Pass<"fastmath-flag", "func::FuncOp"> {
+    let summary = "Add fastmath<contract> flags to enable FMA fusion";
     let description = [{
-        Finds patterns where a memory location is used as an accumulator
-        in a reduction loop and converts it to use iter_args instead,
-        keeping the accumulator in registers for better performance.
+        Insert a fastmath flag so that math-uplift-to-fma pass can be triggered
     }];
-    let dependentDialects = [
-        "mlir::affine::AffineDialect",
-        "mlir::arith::ArithDialect",
-        "mlir::memref::MemRefDialect"
-    ];
+    let dependentDialects = ["mlir::arith::ArithDialect"];
+    let constructor = "::mlir::nova::createFastmathFlagPass()";
 }
 
 #endif // NOVA_TRANSFORMS_PASSES

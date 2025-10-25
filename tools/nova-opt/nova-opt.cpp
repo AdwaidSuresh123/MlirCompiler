@@ -14,7 +14,7 @@
 #include "Compiler/Transforms/CleanupPass.h"
 #include "Compiler/Transforms/AffineFullUnroll.h"
 #include "Compiler/Transforms/FuseMatmulInit.h"
-#include "Compiler/Transforms/PromoteAccumulator.h"
+#include "Compiler/Transforms/FastmathFlag.h"
 
 namespace mlir {
 namespace nova {
@@ -37,10 +37,6 @@ int main(int argc, char **argv) {
 
   mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
     return mlir::nova::createFuseMatmulInit();
-  });
-
-  mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
-    return mlir::nova::createPromoteAccumulator();
   });
 
   mlir::DialectRegistry registry;
