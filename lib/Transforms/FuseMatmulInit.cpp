@@ -98,33 +98,28 @@ struct FuseMatmulInitPass
       return;
     }
     
-    // K_O should be the child of J_I
+    // K_O should be the child of J_I - this is our reduction loop
     AffineForOp KOuter = getSingleChildAffineFor(JInner);
     if (!KOuter) {
       llvm::errs() << "Could not find K_O loop\n";
       return;
     }
     
+    // K_I is the innermost loop (inside K_O)
+    AffineForOp KInner = getSingleChildAffineFor(KOuter);
+    if (!KInner) {
+      llvm::errs() << "Could not find K_I loop\n";
+      return;
+    }
+    
     llvm::errs() << "Successfully navigated loop structure\n";
 
-    Value I_inner_iv = IInner.getInductionVar();
-    Value J_inner_iv = JInner.getInductionVar();
-    
-    // Insert the zero-store operation BEFORE the K_O loop
-    OpBuilder builder(JInner.getBody(), JInner.getBody()->begin());
-    SmallVector<Value> mapOperands = {I_inner_iv, J_inner_iv};
-    
-    Value cst = zeroStore.getValue();
-
-    builder.create<AffineStoreOp>(
-        zeroStore.getLoc(),
-        cst, 
-        resultBuffer, 
-        zeroStore.getMap(), 
-        mapOperands
-    );
-
-    llvm::errs() << "Inserted initialization store\n";
+    // Now transform to simple scalar accumulation
+    if (failed(transformToScalarAccumulation(KOuter, KInner, resultBuffer, IInner, JInner))) {
+      llvm::errs() << "Failed to transform to scalar accumulation\n";
+      signalPassFailure();
+      return;
+    }
 
     // Erase the original initialization loop 
     initLoop.erase();
@@ -133,6 +128,141 @@ struct FuseMatmulInitPass
   }
 
 private:
+  
+  private:
+  LogicalResult transformToScalarAccumulation(AffineForOp kOuter, AffineForOp kInner, 
+                                              Value resultBuffer, AffineForOp iLoop, 
+                                              AffineForOp jLoop) {
+    OpBuilder builder(kOuter);
+    Location loc = kOuter.getLoc();
+    
+    Value iIV = iLoop.getInductionVar();
+    Value jIV = jLoop.getInductionVar();
+    
+    // Create initial zero value
+    auto zeroAttr = builder.getFloatAttr(builder.getF32Type(), 0.0);
+    Value initZero = builder.create<arith::ConstantOp>(loc, zeroAttr);
+    
+    // Clone bounds
+    SmallVector<Value> outerLowerBounds(kOuter.getLowerBoundOperands().begin(),
+                                         kOuter.getLowerBoundOperands().end());
+    SmallVector<Value> outerUpperBounds(kOuter.getUpperBoundOperands().begin(),
+                                         kOuter.getUpperBoundOperands().end());
+    AffineMap outerLowerMap = kOuter.getLowerBoundMap();
+    AffineMap outerUpperMap = kOuter.getUpperBoundMap();
+    int64_t stepOuter = kOuter.getStep().getSExtValue();
+    
+    SmallVector<Value> innerLowerBounds(kInner.getLowerBoundOperands().begin(),
+                                         kInner.getLowerBoundOperands().end());
+    SmallVector<Value> innerUpperBounds(kInner.getUpperBoundOperands().begin(),
+                                         kInner.getUpperBoundOperands().end());
+    AffineMap innerLowerMap = kInner.getLowerBoundMap();
+    AffineMap innerUpperMap = kInner.getUpperBoundMap();
+    int64_t stepInner = kInner.getStep().getSExtValue();
+    
+    // Create K_O loop with iter_args
+    auto newKOuter = builder.create<AffineForOp>(
+        loc,
+        outerLowerBounds,
+        outerLowerMap,
+        outerUpperBounds,
+        outerUpperMap,
+        stepOuter,
+        ValueRange{initZero});
+    
+    Value accOuter = newKOuter.getRegionIterArgs()[0];
+    
+    // Build K_O body
+    OpBuilder outerBodyBuilder(newKOuter.getBody(), newKOuter.getBody()->begin());
+    IRMapping outerMapping;
+    outerMapping.map(kOuter.getInductionVar(), newKOuter.getInductionVar());
+    
+    // Map inner loop bounds
+    for (auto operand : innerLowerBounds) {
+      if (operand == kOuter.getInductionVar()) {
+        outerMapping.map(operand, newKOuter.getInductionVar());
+      }
+    }
+    for (auto operand : innerUpperBounds) {
+      if (operand == kOuter.getInductionVar()) {
+        outerMapping.map(operand, newKOuter.getInductionVar());
+      }
+    }
+    
+    SmallVector<Value> mappedInnerLower;
+    for (auto v : innerLowerBounds) {
+      mappedInnerLower.push_back(outerMapping.lookupOrDefault(v));
+    }
+    SmallVector<Value> mappedInnerUpper;
+    for (auto v : innerUpperBounds) {
+      mappedInnerUpper.push_back(outerMapping.lookupOrDefault(v));
+    }
+    
+    // Create K_I loop WITH iter_args to properly yield the accumulator
+    auto newKInner = outerBodyBuilder.create<AffineForOp>(
+        loc,
+        mappedInnerLower,
+        innerLowerMap,
+        mappedInnerUpper,
+        innerUpperMap,
+        stepInner,
+        ValueRange{accOuter});  // Pass accumulator from outer
+    
+    Value accInner = newKInner.getRegionIterArgs()[0];
+    
+    // Build K_I body
+    OpBuilder innerBodyBuilder(newKInner.getBody(), newKInner.getBody()->begin());
+    IRMapping innerMapping;
+    innerMapping.map(kInner.getInductionVar(), newKInner.getInductionVar());
+    innerMapping.map(kOuter.getInductionVar(), newKOuter.getInductionVar());
+    
+    Value currentAcc = accInner;
+    
+    // Clone operations
+    for (Operation &op : kInner.getBody()->without_terminator()) {
+      
+      if (auto loadOp = dyn_cast<AffineLoadOp>(op)) {
+        if (loadOp.getMemRef() == resultBuffer) {
+          innerMapping.map(loadOp.getResult(), currentAcc);
+          continue;
+        }
+      }
+      
+      if (auto storeOp = dyn_cast<AffineStoreOp>(op)) {
+        if (storeOp.getMemRef() == resultBuffer) {
+          currentAcc = innerMapping.lookupOrDefault(storeOp.getValue());
+          continue;
+        }
+      }
+      
+      Operation *cloned = innerBodyBuilder.clone(op, innerMapping);
+      for (auto [oldResult, newResult] : llvm::zip(op.getResults(), cloned->getResults())) {
+        innerMapping.map(oldResult, newResult);
+      }
+    }
+    
+    // CRITICAL: Yield the accumulator from the inner loop
+    innerBodyBuilder.create<AffineYieldOp>(loc, ValueRange{currentAcc});
+    
+    // Yield from outer loop
+    outerBodyBuilder.setInsertionPointAfter(newKInner);
+    outerBodyBuilder.create<AffineYieldOp>(loc, ValueRange{newKInner.getResult(0)});
+    
+    // Store final result
+    builder.setInsertionPointAfter(newKOuter);
+    builder.create<AffineStoreOp>(
+        loc,
+        newKOuter.getResult(0),
+        resultBuffer,
+        builder.getMultiDimIdentityMap(2),
+        ValueRange{iIV, jIV});
+    
+    kOuter.erase();
+    
+    llvm::errs() << "Transformed to simple scalar accumulation pattern\n";
+    return success();
+  }
+
   AffineForOp getSingleChildAffineFor(AffineForOp loop) {
     auto block = loop.getBody();
     for (Operation &op : *block) {
@@ -143,7 +273,6 @@ private:
     return nullptr;
   }
 
-  // Check if a loop is the simple zero initialization loop
   bool isZeroInitializationLoop(AffineForOp loop) {
     bool foundConstantStore = false;
     loop.walk([&](AffineStoreOp store) {
@@ -160,7 +289,6 @@ private:
     return foundConstantStore;
   }
   
-  // Check if loop has matmul computation pattern (multiply + add)
   bool hasMatmulPattern(AffineForOp loop) {
     bool hasMul = false;
     bool hasAdd = false;
@@ -175,7 +303,6 @@ private:
     return hasMul && hasAdd;
   }
   
-  // Finds the single zero-store instruction in the initialization loop nest
   AffineStoreOp findZeroStore(AffineForOp loop) {
     AffineStoreOp zeroStore = nullptr;
     loop.walk([&](AffineStoreOp store) {
@@ -192,7 +319,6 @@ private:
     return zeroStore;
   }
 
-  // Check if the buffer is used as an accumulator in the compute loop
   bool usesBufferAsAccumulator(AffineForOp loop, Value buffer) {
     bool found = false;
     loop.walk([&](AffineLoadOp load) {
@@ -212,7 +338,7 @@ private:
   StringRef getArgument() const final { return "fuse-matmul-init"; }
   
   StringRef getDescription() const final {
-    return "Fuse matmul initialization store into tiled computation loop.";
+    return "Fuse matmul initialization with computation using simple scalar accumulation.";
   }
 };
 
