@@ -308,3 +308,120 @@ LogicalResult XorOp::inferReturnTypes(
   return inferBinaryElementwiseReturnTypes<XorOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
+//===----------------------------------------------------------------------===//
+// MatmulOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult MatmulOp::verify() { return verifyBinaryOp(*this); }
+
+/// Type inference for matrix multiplication
+LogicalResult MatmulOp::inferReturnTypes(
+    MLIRContext *context,
+    std::optional<Location> location,
+    ValueRange operands,
+    DictionaryAttr attributes,
+    OpaqueProperties properties,
+    RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  
+  if (operands.size() != 2) {
+    if (location) {
+      mlir::emitError(*location) << "matmul requires exactly 2 operands";
+    }
+    return failure();
+  }
+
+  auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  auto rhsType = llvm::dyn_cast<TensorType>(operands[1].getType());
+  
+  if (!lhsType || !rhsType) {
+    if (location) {
+      mlir::emitError(*location) << "matmul operands must be tensor types";
+    }
+    return failure();
+  }
+
+  Type elementType = lhsType.getElementType();
+  if (elementType != rhsType.getElementType()) {
+    if (location) {
+      mlir::emitError(*location) << "matmul operands must have the same element type";
+    }
+    return failure();
+  }
+
+  if (!lhsType.hasRank() || !rhsType.hasRank()) {
+    inferredReturnTypes.push_back(UnrankedTensorType::get(elementType));
+    return success();
+  }
+
+  ArrayRef<int64_t> lhsShape = lhsType.getShape();
+  ArrayRef<int64_t> rhsShape = rhsType.getShape();
+
+  if (lhsShape.size() < 1 || rhsShape.size() < 1) {
+    if (location) {
+      mlir::emitError(*location) << "matmul operands must have at least rank 1";
+    }
+    return failure();
+  }
+
+  SmallVector<int64_t, 4> resultShape;
+
+  // 1D x 1D: dot product -> scalar
+  if (lhsShape.size() == 1 && rhsShape.size() == 1) {
+    if (lhsShape[0] != rhsShape[0] && 
+        lhsShape[0] != ShapedType::kDynamic && 
+        rhsShape[0] != ShapedType::kDynamic) {
+      if (location) {
+        mlir::emitError(*location) << "matmul: incompatible dimensions: "
+                                    << lhsShape[0] << " vs " << rhsShape[0];
+      }
+      return failure();
+    }
+    inferredReturnTypes.push_back(RankedTensorType::get({}, elementType));
+    return success();
+  }
+
+  // Matrix multiplication: [..., M, K] x [..., K, N] -> [..., M, N]
+  int64_t lhsK = lhsShape[lhsShape.size() - 1];
+  int64_t rhsK = (rhsShape.size() == 1) ? rhsShape[0] : rhsShape[rhsShape.size() - 2];
+
+  if (lhsK != rhsK && 
+      lhsK != ShapedType::kDynamic && 
+      rhsK != ShapedType::kDynamic) {
+    if (location) {
+      mlir::emitError(*location) << "matmul: incompatible dimensions: " << lhsK << " vs " << rhsK;
+    }
+    return failure();
+  }
+
+  // Batch dimensions
+  size_t lhsBatchRank = lhsShape.size() > 2 ? lhsShape.size() - 2 : 0;
+  size_t rhsBatchRank = rhsShape.size() > 2 ? rhsShape.size() - 2 : 0;
+  size_t maxBatchRank = std::max(lhsBatchRank, rhsBatchRank);
+  
+  for (size_t i = 0; i < maxBatchRank; ++i) {
+    int64_t lhsDim = (i < lhsBatchRank) ? lhsShape[lhsBatchRank - 1 - i] : 1;
+    int64_t rhsDim = (i < rhsBatchRank) ? rhsShape[rhsBatchRank - 1 - i] : 1;
+    
+    if (lhsDim == rhsDim || lhsDim == 1 || rhsDim == 1 ||
+        lhsDim == ShapedType::kDynamic || rhsDim == ShapedType::kDynamic) {
+      resultShape.insert(resultShape.begin(), (lhsDim == 1) ? rhsDim : lhsDim);
+    } else {
+      if (location) {
+        mlir::emitError(*location) << "matmul: incompatible batch dimensions";
+      }
+      return failure();
+    }
+  }
+
+  if (lhsShape.size() >= 2) {
+    resultShape.push_back(lhsShape[lhsShape.size() - 2]);
+  }
+  
+  if (rhsShape.size() >= 2) {
+    resultShape.push_back(rhsShape[rhsShape.size() - 1]);
+  }
+
+  inferredReturnTypes.push_back(RankedTensorType::get(resultShape, elementType));
+  return success();
+}

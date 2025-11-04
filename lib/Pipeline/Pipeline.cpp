@@ -27,12 +27,17 @@
 #include "Compiler/Dialect/nova/NovaDialect.h"
 #include "Compiler/Dialect/nova/NovaOps.h"
 
-//passes includes
+//optimization passes includes
 #include "Compiler/Transforms/CleanupPass.h"
 #include "Compiler/Transforms/AffineFullUnroll.h"
+#include "Compiler/Transforms/FastmathFlag.h"
+#include "Compiler/Transforms/FuseMatmulInit.h"
+
+//lowering passes
 #include "Compiler/Translation/NovaToArith/NovaToArith.h"
 #include "Compiler/Translation/NovaToMath/NovaToMath.h"
 #include "Compiler/Translation/NovaToTosa/NovaToTosa.h"
+#include "Compiler/Translation/NovaToLinalg/NovaToLinalg.h"
 // header of this file
 #include "Compiler/Pipeline/Pipeline.h"
 
@@ -48,8 +53,8 @@ void mlir::nova::createNovaPipelines(OpPassManager &pm) {
   pm.addPass(createCanonicalizerPass());
   
   // Lower Nova dialect to standard dialects 
-  pm.addPass(createNovaToTosaLoweringPass());
-
+//pm.addNestedPass<func::FuncOp>(ceateNovaToLinalg());  
+  pm.addPass(createNovaToLinalgLoweringPass());
   pm.addPass(createNovaToArithLoweringPass());
   pm.addPass(createNovaToMathLoweringPass());
   pm.addPass(createCanonicalizerPass());
@@ -62,10 +67,9 @@ pm.addPass(mlir::createTosaToTensorPass());
 
   // Convert elementwise operations to Linalg
   pm.addPass(mlir::createConvertElementwiseToLinalgPass());
-  pm.addPass(createCanonicalizerPass());
   
   //  Bufferization (Tensor -> MemRef)
-  bufferization::OneShotBufferizePassOptions bufferizeOptions;  // creation a options variable
+  bufferization::OneShotBufferizePassOptions bufferizeOptions;  // create a options variable
   bufferizeOptions.bufferizeFunctionBoundaries = true;        // mention that we want to bufferize function boundaries ie parameters and returns
   bufferizeOptions.functionBoundaryTypeConversion=            //keep the layout map as identity for function boundaries
                 bufferization::LayoutMapOption::IdentityLayoutMap;      // this will ensure that the function signatures remain unchanged
@@ -80,6 +84,7 @@ pm.addPass(mlir::createTosaToTensorPass());
   //Convert remaining bufferization ops to memref
   pm.addPass(mlir::createConvertBufferizationToMemRefPass());
   
+
   // Lower Linalg to loops (SCF dialect)
   pm.addPass(mlir::createConvertLinalgToLoopsPass());
   

@@ -1,4 +1,4 @@
-# CMakeLists.txt for Nova to Arith Lowering Pass
+# CMakeLists.txt for Nova to tosa Lowering Pass
 
 add_mlir_library(MLIRNovaToTosaTransforms
   NovaToTosa.cpp
