@@ -14,7 +14,9 @@
 #include "Compiler/Transforms/CleanupPass.h"
 #include "Compiler/Transforms/AffineFullUnroll.h"
 #include "Compiler/Transforms/FuseMatmulInit.h"
+#include "Compiler/Transforms/FuseMatmulBias.h"
 #include "Compiler/Transforms/FastmathFlag.h"
+#include "Compiler/Transforms/ParallelizeOuterLoops.h"
 
 namespace mlir {
 namespace nova {

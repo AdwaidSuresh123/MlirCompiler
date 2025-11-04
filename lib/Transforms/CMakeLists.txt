@@ -2,7 +2,9 @@
 add_mlir_library(CompilerTransforms
   CleanupPass.cpp
   FuseMatmulInit.cpp
+  FuseMatmulBias.cpp
   FastmathFlag.cpp
+  ParallelizeOuterLoops.cpp
 
   LINK_LIBS PUBLIC
   MLIRIR
@@ -11,8 +13,10 @@ add_mlir_library(CompilerTransforms
   MLIRTransformUtils
   MLIRNova
   MLIRArithDialect
-  MLIRMathDialect 
-  MLIRFuncDialect  
+  MLIRMathDialect
+  MLIRFuncDialect
   MLIRAffineDialect
-  MLIRMemRefDialect     
+  MLIRMemRefDialect
+  MLIRSCFDialect
+  MLIRLinalgDialect
 )
