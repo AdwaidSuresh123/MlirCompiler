@@ -13,7 +13,7 @@ module {
     // Create input tensors
     %cst_0 = arith.constant 1.000000e+00 : f32
     %cst_1 = arith.constant 2.000000e+00 : f32
-    %expected = arith.constant 1024.000000e+00 : f32  // 128 * 2.0
+    %expected = arith.constant 1024.000000e+00 : f32  // 512 * 2.0
     
     %A = tensor.splat %cst_0 : tensor<512x512xf32>
     %B = tensor.splat %cst_1 : tensor<512x512xf32>
