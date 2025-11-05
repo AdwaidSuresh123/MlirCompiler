@@ -31,7 +31,8 @@
 #include "Compiler/Transforms/CleanupPass.h"
 #include "Compiler/Transforms/AffineFullUnroll.h"
 #include "Compiler/Transforms/FastmathFlag.h"
-#include "Compiler/Transforms/FuseMatmulInit.h"
+#include "Compiler/Transforms/ParallelizeOuterLoops.h"
+#include "Compiler/Transforms/FuseMatmulBias.h"
 
 //lowering passes
 #include "Compiler/Translation/NovaToArith/NovaToArith.h"
@@ -108,7 +109,7 @@ pm.addPass(mlir::createTosaToTensorPass());
 }
 
 void mlir::nova::registerNovaPipelines() {
-  PassPipelineRegistration<>("nova-cpu-opt-pipeline",
+  PassPipelineRegistration<>("nova-opt-pipeline",
                             "Nova Optimizer Pipeline",
                             createNovaPipelines);
 }

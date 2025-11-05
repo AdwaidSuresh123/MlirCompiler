@@ -1,6 +1,5 @@
 add_mlir_library(NovaPipelines
   Pipeline.cpp
-  Pipelinegpu.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/Compiler

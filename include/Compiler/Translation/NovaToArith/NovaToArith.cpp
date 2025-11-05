@@ -28,91 +28,91 @@ namespace nova {
 // Conversion Patterns
 //===----------------------------------------------------------------------===//
 
-// // Pattern to convert nova.add to arith.addi/arith.addf
-// struct NovaAddOpLowering : public OpConversionPattern<nova::AddOp> {
-//   using OpConversionPattern<nova::AddOp>::OpConversionPattern;
+// Pattern to convert nova.add to arith.addi/arith.addf
+struct NovaAddOpLowering : public OpConversionPattern<nova::AddOp> {
+  using OpConversionPattern<nova::AddOp>::OpConversionPattern;
 
-//   LogicalResult
-//   matchAndRewrite(nova::AddOp op, OpAdaptor adaptor,
-//                   ConversionPatternRewriter &rewriter) const override {
+  LogicalResult
+  matchAndRewrite(nova::AddOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
     
-//     // Get operands - use getOperands() to access all operands
-//     auto operands = adaptor.getOperands();
+    // Get operands - use getOperands() to access all operands
+    auto operands = adaptor.getOperands();
     
-//     // Verify we have exactly 2 operands
-//     if (operands.size() != 2) {
-//       return rewriter.notifyMatchFailure(op, "expected exactly 2 operands");
-//     }
+    // Verify we have exactly 2 operands
+    if (operands.size() != 2) {
+      return rewriter.notifyMatchFailure(op, "expected exactly 2 operands");
+    }
     
-//     Value lhs = operands[0];
-//     Value rhs = operands[1];
+    Value lhs = operands[0];
+    Value rhs = operands[1];
     
-//     // Get the result type
-//     Type resultType = op.getType();
+    // Get the result type
+    Type resultType = op.getType();
     
-//     // Handle tensor types - get element type
-//     Type elementType = resultType;
-//     if (auto tensorType = llvm::dyn_cast<RankedTensorType>(resultType)) {
-//       elementType = tensorType.getElementType();
-//     } else if (auto tensorType = llvm::dyn_cast<UnrankedTensorType>(resultType)) {
-//       elementType = tensorType.getElementType();
-//     }
+    // Handle tensor types - get element type
+    Type elementType = resultType;
+    if (auto tensorType = llvm::dyn_cast<RankedTensorType>(resultType)) {
+      elementType = tensorType.getElementType();
+    } else if (auto tensorType = llvm::dyn_cast<UnrankedTensorType>(resultType)) {
+      elementType = tensorType.getElementType();
+    }
     
-//     // Check if the element type is integer or float and create appropriate arith op
-//     if (llvm::isa<IntegerType>(elementType)) {
-//       // Create arith.addi for integer types
-//       rewriter.replaceOpWithNewOp<arith::AddIOp>(op, resultType, lhs, rhs);
-//     } else if (llvm::isa<FloatType>(elementType)) {
-//       // Create arith.addf for float types
-//       rewriter.replaceOpWithNewOp<arith::AddFOp>(op, resultType, lhs, rhs);
-//     } else {
-//       return rewriter.notifyMatchFailure(op, "unsupported element type");
-//     }
+    // Check if the element type is integer or float and create appropriate arith op
+    if (llvm::isa<IntegerType>(elementType)) {
+      // Create arith.addi for integer types
+      rewriter.replaceOpWithNewOp<arith::AddIOp>(op, resultType, lhs, rhs);
+    } else if (llvm::isa<FloatType>(elementType)) {
+      // Create arith.addf for float types
+      rewriter.replaceOpWithNewOp<arith::AddFOp>(op, resultType, lhs, rhs);
+    } else {
+      return rewriter.notifyMatchFailure(op, "unsupported element type");
+    }
     
-//     return success();
-//   }
-// };
+    return success();
+  }
+};
 
-// // Pattern to convert nova.sub to arith.subi/arith.subf
-// struct NovaSubOpLowering : public OpConversionPattern<nova::SubOp> {
-//   using OpConversionPattern<nova::SubOp>::OpConversionPattern;
+// Pattern to convert nova.sub to arith.subi/arith.subf
+struct NovaSubOpLowering : public OpConversionPattern<nova::SubOp> {
+  using OpConversionPattern<nova::SubOp>::OpConversionPattern;
 
-//   LogicalResult
-//   matchAndRewrite(nova::SubOp op, OpAdaptor adaptor,
-//                   ConversionPatternRewriter &rewriter) const override {
+  LogicalResult
+  matchAndRewrite(nova::SubOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
     
 
-//     // Get operands
-//     auto operands = adaptor.getOperands();
+    // Get operands
+    auto operands = adaptor.getOperands();
     
-//     if (operands.size() != 2) {
-//       return rewriter.notifyMatchFailure(op, "expected exactly 2 operands");
-//     }
+    if (operands.size() != 2) {
+      return rewriter.notifyMatchFailure(op, "expected exactly 2 operands");
+    }
     
-//     Value lhs = operands[0];
-//     Value rhs = operands[1];
-//     Type resultType = op.getType();
+    Value lhs = operands[0];
+    Value rhs = operands[1];
+    Type resultType = op.getType();
     
-//     // Handle tensor types - get element type
-//     Type elementType = resultType;
-//     if (auto tensorType = llvm::dyn_cast<RankedTensorType>(resultType)) {
-//       elementType = tensorType.getElementType();
-//     } else if (auto tensorType = llvm::dyn_cast<UnrankedTensorType>(resultType)) {
-//       elementType = tensorType.getElementType();
-//     }
+    // Handle tensor types - get element type
+    Type elementType = resultType;
+    if (auto tensorType = llvm::dyn_cast<RankedTensorType>(resultType)) {
+      elementType = tensorType.getElementType();
+    } else if (auto tensorType = llvm::dyn_cast<UnrankedTensorType>(resultType)) {
+      elementType = tensorType.getElementType();
+    }
     
-//     if (llvm::isa<IntegerType>(elementType)) {
-//       rewriter.replaceOpWithNewOp<arith::SubIOp>(op, resultType, lhs, rhs);
-//     } else if (llvm::isa<FloatType>(elementType)) {
-//       rewriter.replaceOpWithNewOp<arith::SubFOp>(op, resultType, lhs, rhs);
-//     } else {
-//       return rewriter.notifyMatchFailure(op, "unsupported element type");
-//     }
+    if (llvm::isa<IntegerType>(elementType)) {
+      rewriter.replaceOpWithNewOp<arith::SubIOp>(op, resultType, lhs, rhs);
+    } else if (llvm::isa<FloatType>(elementType)) {
+      rewriter.replaceOpWithNewOp<arith::SubFOp>(op, resultType, lhs, rhs);
+    } else {
+      return rewriter.notifyMatchFailure(op, "unsupported element type");
+    }
     
-//     return success();
-//   }
-// };
+    return success();
+  }
+};
 //--------------------------------------constant-----------------------------
 
 struct NovaConstantOpLowering 
@@ -187,7 +187,7 @@ struct NovaToArithLoweringPass
     RewritePatternSet patterns(&getContext());
     
     // Populate patterns with our conversion patterns
-    patterns.add<NovaConstantOpLowering>(
+    patterns.add<NovaAddOpLowering, NovaSubOpLowering,NovaConstantOpLowering>(
         typeConverter, &getContext());
     // Step 4: Apply the conversion
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {

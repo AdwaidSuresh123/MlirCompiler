@@ -308,6 +308,7 @@ LogicalResult XorOp::inferReturnTypes(
   return inferBinaryElementwiseReturnTypes<XorOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
+
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
