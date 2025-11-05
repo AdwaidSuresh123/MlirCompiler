@@ -13,6 +13,13 @@
 #include "Compiler/Dialect/nova/NovaOps.h"
 #include "Compiler/Transforms/CleanupPass.h"
 #include "Compiler/Transforms/AffineFullUnroll.h"
+#include "Compiler/Pipeline/Pipeline.h"
+
+#include "Compiler/Translation/NovaToArith/NovaToArith.h"
+#include "Compiler/Translation/NovaToMath/NovaToMath.h"
+#include "Compiler/Translation/NovaToTosa/NovaToTosa.h"
+#include "Compiler/Translation/NovaToLinalg/NovaToLinalg.h"
+
 #include "Compiler/Transforms/FuseMatmulInit.h"
 #include "Compiler/Transforms/FastmathFlag.h"
 
@@ -41,12 +48,17 @@ int main(int argc, char **argv) {
 
   mlir::DialectRegistry registry;
   
-  // Register only the dialects we need
+
   registry.insert<mlir::nova::NovaDialect>();
   mlir::registerAllDialects(registry);
+ //registeing pipeline
+  mlir::nova::registerNovaPipelines();
 
-  mlir::nova::registerAffinePasses();
-
+//register translation pass-
+ mlir::nova::registerNovaToArithLoweringPass();
+ mlir::nova::registerNovaToMathLoweringPass();
+ mlir::nova::registerNovaToTosaLoweringPass();
+ mlir::nova::registerNovaToLinalgLoweringPass();
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "Nova dialect optimizer\n", registry));
 }

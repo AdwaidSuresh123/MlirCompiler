@@ -15,7 +15,10 @@ target_link_libraries(nova-opt PRIVATE
 
   CompilerTransforms
   AffineFullUnroll 
-
+NovaPipelines
+MLIRNovaToArithTransforms
+MLIRNovaToMathTransforms
+MLIRNovaToLinalgTransforms
   # Add all MLIR dialects
   MLIRFuncDialect
   MLIRArithDialect

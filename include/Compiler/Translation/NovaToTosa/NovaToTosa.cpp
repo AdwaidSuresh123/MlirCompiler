@@ -16,9 +16,6 @@
 namespace mlir {
 namespace nova {
 
-// Forward declarations (assuming your Nova ops are defined)
-// class relu
-
 //===----------------------------------------------------------------------===//
 // Conversion Patterns
 //===----------------------------------------------------------------------===//

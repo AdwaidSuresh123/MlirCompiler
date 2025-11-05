@@ -44,7 +44,62 @@ def Nova_BroadcastInDimOp : Op<Nova_Dialect, "broadcast_in_dim", [
 
   let hasVerifier = 1;
 }
+class Nova_UnaryOp<string mnemonic, list<Trait> traits = []> :
+    Op<Nova_Dialect,mnemonic, traits # [Pure]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
 
+
+def Nova_ConstantOp : Nova_UnaryOp<"constant", [Pure]> {
+  let summary = "Constant tensor operation";
+  let description = [{
+    Creates a constant tensor with a specified value.
+    
+    Example:
+    ```mlir
+    %0 = nova.constant {value = dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32>} : tensor<4xf32>
+    ```
+  }];
+  
+  let arguments = (ins ElementsAttr:$value);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    attr-dict `:` type($output)
+  }];
+  
+  let builders = [
+    OpBuilder<(ins "Attribute":$value, "Type":$resultType)>
+  ];
+  let extraClassDeclaration = [{
+    /// Set a new value attribute for the constant op.
+    void setValue(::mlir::Attribute newValue) {
+      (*this)->setAttr("value", newValue);
+    }
+  }];
+}
+
+def Nova_SinOp : Nova_UnaryOp<"sin", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins AnyTensor:$input);
+  let results = (outs AnyTensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+def Nova_ReluOp : Nova_UnaryOp<"relu", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
 //===----------------------------------------------------------------------===//
 // Base class for binary elementwise tensor ops
 //===----------------------------------------------------------------------===//
@@ -59,7 +114,7 @@ class Nova_BinaryOp<string mnemonic, list<Trait> commonTraits = []>:
   let results = (outs Nova_Tensor:$result);
 
   let assemblyFormat = [{
-    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
   }];
 
   let hasCanonicalizer = 1;
@@ -87,7 +142,7 @@ def Nova_AddOp : Nova_BinaryOp<"add", [Commutative]> {
     Adds two tensors elementwise with broadcasting support.
     
     Example:
-      %r = nova.add %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.add %a, %b : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
   }];
 }
 
@@ -97,7 +152,7 @@ def Nova_SubOp : Nova_BinaryOp<"sub", []> {
     Subtracts two tensors elementwise with broadcasting support.
 
     Example:
-      %r = nova.sub %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.sub %a, %b : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
   }];
 }
 
@@ -108,7 +163,7 @@ def Nova_MulOp : Nova_BinaryOp<"mul", [Commutative]> {
     Example: [1,2,3] * [3,4,5] = [3,8,15]
 
     Example:
-      %r = nova.mul %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.mul %a, %b : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
   }];
 }
 
@@ -118,7 +173,7 @@ def Nova_DivOp : Nova_BinaryOp<"div", []> {
     Divides two tensors (dividend and divisor) elementwise with broadcasting support.
     
     Example:
-      %r = nova.div %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.div %a, %b : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
   }];
 }
 
@@ -129,7 +184,7 @@ def Nova_RemOp : Nova_BinaryOp<"rem", []> {
     Computation example: a=[2,7,10] b=[2,2,4] result=[0,1,2]
   
     Example:
-      %r = nova.rem %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.rem %a, %b : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
   }];
 }
 
@@ -140,7 +195,7 @@ def Nova_PowOp : Nova_BinaryOp<"pow", []> {
     Computation example: a=[1,2,3] b=[2,2,4] result=[1,4,81]
   
     Example:
-      %r = nova.pow %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.pow %a, %b : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
   }];
 }
 
@@ -151,7 +206,7 @@ def Nova_MaxOp : Nova_BinaryOp<"max", [Commutative]> {
     Example: a=[1,2,3] b=[2,4,2] result=[2,4,3]
   
     Example:
-      %r = nova.max %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.max %a, %b : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
   }];
 }
 
@@ -162,7 +217,7 @@ def Nova_MinOp : Nova_BinaryOp<"min", [Commutative]> {
     Example: a=[1,2,3] b=[2,4,2] result=[1,2,2]
   
     Example:
-      %r = nova.min %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.min %a, %b : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
   }];
 }
 
@@ -173,7 +228,7 @@ def Nova_AndOp : Nova_BinaryOp<"and", [Commutative]> {
     Example: a=[true,false,true] b=[true,true,false] result=[true,false,false]
   
     Example:
-      %r = nova.and %a, %b : tensor<2x3xi1>, tensor<3xi1> -> tensor<2x3xi1>
+      %r = nova.and %a, %b : tensor<2x3xi1>, tensor<2x3xi1> -> tensor<2x3xi1>
   }];
 }
 
@@ -184,7 +239,7 @@ def Nova_OrOp : Nova_BinaryOp<"or", [Commutative]> {
     Example: a=[true,false,true] b=[true,true,false] result=[true,true,true]
   
     Example:
-      %r = nova.or %a, %b : tensor<2x3xi1>, tensor<3xi1> -> tensor<2x3xi1>
+      %r = nova.or %a, %b : tensor<2x3xi1>, tensor<2x3xi1> -> tensor<2x3xi1>
   }];
 }
 
@@ -195,8 +250,17 @@ def Nova_XorOp : Nova_BinaryOp<"xor", [Commutative]> {
     Example: a=[true,false,true] b=[true,true,false] result=[false,true,true]
   
     Example:
-      %r = nova.xor %a, %b : tensor<2x3xi1>, tensor<3xi1> -> tensor<2x3xi1>
+      %r = nova.xor %a, %b : tensor<2x3xi1>, tensor<2x3xi1> -> tensor<2x3xi1>
   }];
 }
-
+def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let results = (outs Nova_Tensor:$result);
+  
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+  }];
+  
+  let hasVerifier = 1;
+}
 #endif // NOVA_OPS

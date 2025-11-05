@@ -7,7 +7,8 @@ namespace nova {
 // Register all Nova pipelines
 void registerNovaPipelines();
 void createNovaPipelines(OpPassManager &pm);
-} // namespace nova
+void registerNovagpuPipelines();
+void createNovaGPUPipelines(OpPassManager &pm);} // namespace nova
 } // namespace mlir
 
 
