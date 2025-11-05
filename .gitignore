@@ -1,6 +1,14 @@
 # Ignore build directory
 build/
 
+# Executable files
+final_benchmark
+matmul
+matmul_benchmark
+matmul_omp
+openblas
+reference
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt
