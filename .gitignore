@@ -25,3 +25,14 @@ tablegen_compile_commands.yml
 .idea/
 .DS_Store
 Thumbs.db
+
+# Executable files (added)
+*.out
+*.app
+*.bin
+*.run
+
+# Shell scripts (added)
+*.sh
+*.bash
+*.zsh
