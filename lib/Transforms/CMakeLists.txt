@@ -1,7 +1,6 @@
 # Add CleanupPass to the list of sources
 add_mlir_library(CompilerTransforms
   CleanupPass.cpp
-  FuseMatmulInit.cpp
   FuseMatmulBias.cpp
   FastmathFlag.cpp
   ParallelizeOuterLoops.cpp
