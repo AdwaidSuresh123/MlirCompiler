@@ -26,6 +26,7 @@ target_link_libraries(nova-opt PRIVATE
   MLIRNovaToMathTransforms
   MLIRNovaToLinalgTransforms
   MLIRNovaToTosaTransforms
+  NovaPipelines
 
   # Core dialects that we know exist and are needed
   MLIRAffineDialect

@@ -21,6 +21,7 @@
 #include "Compiler/Translation/NovaToMath/NovaToMath.h"
 #include "Compiler/Translation/NovaToTosa/NovaToTosa.h"
 #include "Compiler/Translation/NovaToLinalg/NovaToLinalg.h"
+#include "Compiler/Pipeline/Pipeline.h"
 
 namespace mlir {
 namespace nova {
@@ -46,6 +47,7 @@ int main(int argc, char **argv) {
   // Register only the dialects we need
   registry.insert<mlir::nova::NovaDialect>();
   mlir::registerAllDialects(registry);
+  mlir::nova::registerNovaPipelines();
 
   mlir::nova::registerAffinePasses();
   
