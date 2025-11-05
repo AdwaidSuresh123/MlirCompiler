@@ -13,7 +13,6 @@
 #include "Compiler/Dialect/nova/NovaOps.h"
 #include "Compiler/Transforms/CleanupPass.h"
 #include "Compiler/Transforms/AffineFullUnroll.h"
-#include "Compiler/Transforms/FuseMatmulInit.h"
 #include "Compiler/Transforms/FuseMatmulBias.h"
 #include "Compiler/Transforms/FastmathFlag.h"
 #include "Compiler/Transforms/ParallelizeOuterLoops.h"
@@ -35,10 +34,6 @@ int main(int argc, char **argv) {
 
   mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
     return mlir::compiler::createCleanupPass();
-  });
-
-  mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
-    return mlir::nova::createFuseMatmulInit();
   });
 
   mlir::DialectRegistry registry;
