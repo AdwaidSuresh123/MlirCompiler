@@ -45,6 +45,63 @@ def Nova_BroadcastInDimOp : Op<Nova_Dialect, "broadcast_in_dim", [
   let hasVerifier = 1;
 }
 
+class Nova_UnaryOp<string mnemonic, list<Trait> traits = []> :
+    Op<Nova_Dialect,mnemonic, traits # [Pure]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+
+
+def Nova_ConstantOp : Nova_UnaryOp<"constant", [Pure]> {
+  let summary = "Constant tensor operation";
+  let description = [{
+    Creates a constant tensor with a specified value.
+    
+    Example:
+    ```mlir
+    %0 = nova.constant {value = dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32>} : tensor<4xf32>
+    ```
+  }];
+  
+  let arguments = (ins ElementsAttr:$value);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    attr-dict `:` type($output)
+  }];
+  
+  let builders = [
+    OpBuilder<(ins "Attribute":$value, "Type":$resultType)>
+  ];
+  let extraClassDeclaration = [{
+    /// Set a new value attribute for the constant op.
+    void setValue(::mlir::Attribute newValue) {
+      (*this)->setAttr("value", newValue);
+    }
+  }];
+}
+
+def Nova_SinOp : Nova_UnaryOp<"sin", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins AnyTensor:$input);
+  let results = (outs AnyTensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+def Nova_ReluOp : Nova_UnaryOp<"relu", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // Base class for binary elementwise tensor ops
 //===----------------------------------------------------------------------===//
@@ -197,6 +254,17 @@ def Nova_XorOp : Nova_BinaryOp<"xor", [Commutative]> {
     Example:
       %r = nova.xor %a, %b : tensor<2x3xi1>, tensor<3xi1> -> tensor<2x3xi1>
   }];
+}
+
+def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let results = (outs Nova_Tensor:$result);
+  
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+  }];
+  
+  let hasVerifier = 1;
 }
 
 #endif // NOVA_OPS

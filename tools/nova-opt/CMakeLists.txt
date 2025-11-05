@@ -21,6 +21,11 @@ target_link_libraries(nova-opt PRIVATE
   MLIRNova
   CompilerTransforms
   AffineFullUnroll
+  
+  MLIRNovaToArithTransforms
+  MLIRNovaToMathTransforms
+  MLIRNovaToLinalgTransforms
+  MLIRNovaToTosaTransforms
 
   # Core dialects that we know exist and are needed
   MLIRAffineDialect
