@@ -9,6 +9,7 @@ matmul_omp
 openblas
 reference
 
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt
@@ -23,6 +24,7 @@ Makefile
 *.dylib
 *.dll
 *.exe
+*.s
 
 # Ignore generated configs
 compile_commands.json
