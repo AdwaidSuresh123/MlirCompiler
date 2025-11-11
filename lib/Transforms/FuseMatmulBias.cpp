@@ -34,7 +34,7 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     // Check that matmul has only one use (this add)
     if (!matmulOp->hasOneUse())
       return failure();
-
+    
     llvm::errs() << "Found fusible matmul + add pattern!\n";
 
     // Get the bias input (the second input to the add)
@@ -44,29 +44,27 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     Value A = matmulOp.getDpsInputOperand(0)->get();
     Value B = matmulOp.getDpsInputOperand(1)->get();
 
-    // Get the output for the fused operation
-    Value output = addOp.getDpsInitOperand(0)->get();
+    // !! FIX 1: The 'bias' tensor becomes the initial output (accumulator).
+    Value output = bias;
 
     // Get location for the new operation
     Location loc = addOp.getLoc();
 
-    // Create the fused matmul+bias operation
-    // The fused op computes: C[i,j] = sum_k(A[i,k] * B[k,j]) + bias[i,j]
-
-    auto matmulType = cast<RankedTensorType>(matmulOp.getResult(0).getType());
+    // The result type is the type of the Add operation
+    auto resultType = cast<RankedTensorType>(addOp.getResult(0).getType()); 
     SmallVector<AffineMap> indexingMaps;
     SmallVector<utils::IteratorType> iteratorTypes;
 
-    // Build affine maps for: (i,j,k) -> A[i,k], B[k,j], bias[i,j], C[i,j]
+    // Build affine maps for: (i,j,k) -> A[i,k], B[k,j], C[i,j] (Output)
     auto context = rewriter.getContext();
+    
+    // FIX 2: Only 3 indexing maps (A, B, C/Output)
     indexingMaps.push_back(AffineMap::get(3, 0,
-        {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(2)}, context)); // A[i,k]
+        {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(2)}, context)); // A[i,k] - args[0]
     indexingMaps.push_back(AffineMap::get(3, 0,
-        {rewriter.getAffineDimExpr(2), rewriter.getAffineDimExpr(1)}, context)); // B[k,j]
+        {rewriter.getAffineDimExpr(2), rewriter.getAffineDimExpr(1)}, context)); // B[k,j] - args[1]
     indexingMaps.push_back(AffineMap::get(3, 0,
-        {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(1)}, context)); // bias[i,j]
-    indexingMaps.push_back(AffineMap::get(3, 0,
-        {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(1)}, context)); // C[i,j]
+        {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(1)}, context)); // C[i,j] (output) - args[2]
 
     // Iterator types: parallel(i), parallel(j), reduction(k)
     iteratorTypes = {utils::IteratorType::parallel,
@@ -76,23 +74,24 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     // Create the fused generic op
     auto fusedOp = rewriter.create<GenericOp>(
         loc,
-        matmulType,
-        ValueRange{A, B, bias},  // inputs
-        ValueRange{output},       // outputs
+        resultType,
+        ValueRange{A, B},     // FIX 3: Inputs are only A and B
+        ValueRange{output},   // FIX 4: Output is the bias tensor
         indexingMaps,
         iteratorTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
-          // args[0] = A[i,k], args[1] = B[k,j], args[2] = bias[i,j], args[3] = C[i,j]
+          // args[0] = A[i,k], args[1] = B[k,j], args[2] = C[i,j] (initial value is bias)
+          
+          // FIX 5: Loop body is ONLY matmul accumulation (C = C + A * B)
           Value mul = b.create<arith::MulFOp>(loc, args[0], args[1]);
-          Value partialSum = b.create<arith::AddFOp>(loc, args[3], mul);
-          Value withBias = b.create<arith::AddFOp>(loc, partialSum, args[2]);
-          b.create<linalg::YieldOp>(loc, withBias);
+          Value partialSum = b.create<arith::AddFOp>(loc, args[2], mul);
+          b.create<linalg::YieldOp>(loc, partialSum);
         }
     );
 
     llvm::errs() << "Successfully fused matmul + bias into single operation!\n";
 
-    // Replace the add operation with the fused operation
+    // Replace the original add operation with the new fused operation
     rewriter.replaceOp(addOp, fusedOp.getResult(0));
 
     // The matmul op will be automatically removed since it has no more uses
@@ -135,7 +134,7 @@ struct FuseMatmulBiasPass
     RewritePatternSet patterns(&getContext());
     patterns.add<FuseMatmulBiasPattern>(&getContext());
 
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns)))) {
+    if (failed(applyPatternsGreedily(func, std::move(patterns)))) {
       signalPassFailure();
     }
 

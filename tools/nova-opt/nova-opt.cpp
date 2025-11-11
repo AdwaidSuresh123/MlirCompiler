@@ -9,6 +9,15 @@
 #include "mlir/Transforms/ViewOpGraph.h"
 #include "mlir/Transforms/Passes.h"
 
+#include "mlir/Dialect/Transform/IR/TransformOps.h"
+#include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
+#include "mlir/Dialect/Linalg/TransformOps/DialectExtension.h"
+#include "mlir/Dialect/Vector/TransformOps/VectorTransformOps.h"
+#include "mlir/Dialect/Func/TransformOps/FuncTransformOps.h"
+#include "mlir/Dialect/SCF/TransformOps/SCFTransformOps.h"
+#include "mlir/Dialect/MemRef/TransformOps/MemRefTransformOps.h"
+
+
 #include "Compiler/Dialect/nova/NovaDialect.h"
 #include "Compiler/Dialect/nova/NovaOps.h"
 #include "Compiler/Transforms/CleanupPass.h"
@@ -46,7 +55,15 @@ int main(int argc, char **argv) {
   
   // Register only the dialects we need
   registry.insert<mlir::nova::NovaDialect>();
+  registry.insert<mlir::transform::TransformDialect>();
   mlir::registerAllDialects(registry);
+  
+  mlir::linalg::registerTransformDialectExtension(registry);
+  mlir::vector::registerTransformDialectExtension(registry);
+  mlir::func::registerTransformDialectExtension(registry);
+  mlir::scf::registerTransformDialectExtension(registry);
+  mlir::memref::registerTransformDialectExtension(registry);
+
   mlir::nova::registerNovaPipelines();
 
   mlir::nova::registerAffinePasses();

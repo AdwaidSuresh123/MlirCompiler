@@ -136,7 +136,7 @@ struct NovaMulOpLowering : public OpConversionPattern<nova::MulOp> {
     
     // Create linalg.add operation
     // linalg.add requires: inputs (lhs, rhs) and outputs (destination tensor)
-    rewriter.replaceOpWithNewOp<linalg::SubOp>(
+    rewriter.replaceOpWithNewOp<linalg::MulOp>(
         op,
         /*inputs=*/ValueRange{lhs, rhs},
         /*outputs=*/ValueRange{emptyTensor});

@@ -26,6 +26,6 @@ void benchmark_openblas(int size) {
 }
 
 int main() {
-    benchmark_openblas(512);
+    benchmark_openblas(4096);
     return 0;
 }

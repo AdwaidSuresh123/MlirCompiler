@@ -3,6 +3,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace mlir;
@@ -10,34 +11,55 @@ using namespace mlir::compiler;
 
 namespace {
 
-struct CleanupPass : public PassWrapper<CleanupPass, OperationPass<ModuleOp>> {
-  void runOnOperation() override {
-    ModuleOp module = getOperation();
+// Pattern to replace ub.poison with llvm.mlir.undef
+struct PoisonToUndefPattern : public OpRewritePattern<ub::PoisonOp> {
+  using OpRewritePattern<ub::PoisonOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ub::PoisonOp op,
+                                PatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<LLVM::UndefOp>(op, op.getType());
+    return success();
+  }
+};
+
+// Pattern to remove identity unrealized conversion casts
+struct RemoveIdentityCastPattern 
+    : public OpRewritePattern<UnrealizedConversionCastOp> {
+  using OpRewritePattern<UnrealizedConversionCastOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(UnrealizedConversionCastOp op,
+                                PatternRewriter &rewriter) const override {
+    if (op.getInputs().size() != 1 || op.getResults().size() != 1)
+      return failure();
     
-    // Remove ub.poison operations by name matching
-    module.walk([&](Operation *op) {
-      StringRef opName = op->getName().getStringRef();
-      
-      // Remove any operation with "ub.poison" in its name
-      if (opName.contains("ub.poison")) {
-        OpBuilder builder(op);
-        Value undef = builder.create<LLVM::UndefOp>(op->getLoc(), op->getResult(0).getType());
-        op->getResult(0).replaceAllUsesWith(undef);
-        op->erase();
-        return;
-      }
-      
-      // Remove unnecessary conversion casts
-      if (auto castOp = dyn_cast<UnrealizedConversionCastOp>(op)) {
-        if (castOp.getInputs().size() == 1 && castOp.getResults().size() == 1) {
-          Value input = castOp.getInputs()[0];
-          if (input.getType() == castOp.getResult(0).getType()) {
-            castOp.getResult(0).replaceAllUsesWith(input);
-            castOp->erase();
-          }
-        }
-      }
-    });
+    Value input = op.getInputs()[0];
+    if (input.getType() != op.getResult(0).getType())
+      return failure();
+    
+    rewriter.replaceOp(op, input);
+    return success();
+  }
+};
+
+struct CleanupPass : public PassWrapper<CleanupPass, OperationPass<ModuleOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(CleanupPass)
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<LLVM::LLVMDialect, ub::UBDialect>();
+  }
+
+  void runOnOperation() override {
+    MLIRContext *ctx = &getContext();
+    RewritePatternSet patterns(ctx);
+    
+    // Add cleanup patterns
+    patterns.add<PoisonToUndefPattern, RemoveIdentityCastPattern>(ctx);
+    
+    // Apply patterns greedily
+    if (failed(applyPatternsGreedily(getOperation(),
+                                  std::move(patterns)))) {
+      signalPassFailure();
+    }
   }
   
   StringRef getArgument() const final { return "cleanup"; }

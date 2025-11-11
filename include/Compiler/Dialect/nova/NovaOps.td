@@ -116,7 +116,7 @@ class Nova_BinaryOp<string mnemonic, list<Trait> commonTraits = []>:
   let results = (outs Nova_Tensor:$result);
 
   let assemblyFormat = [{
-    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
 
   let hasCanonicalizer = 1;

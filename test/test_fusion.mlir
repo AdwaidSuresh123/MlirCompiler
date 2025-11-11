@@ -1,17 +1,20 @@
-func.func @matmul_with_bias(%A: tensor<128x256xf32>, %B: tensor<256x512xf32>, %bias: tensor<128x512xf32>) -> tensor<128x512xf32> {
-  // Matrix multiplication
-  %init = tensor.empty() : tensor<128x512xf32>
-  %zero = arith.constant 0.0 : f32
-  %init_filled = linalg.fill ins(%zero : f32) outs(%init : tensor<128x512xf32>) -> tensor<128x512xf32>
-
-  %matmul = linalg.matmul
-    ins(%A, %B : tensor<128x256xf32>, tensor<256x512xf32>)
-    outs(%init_filled : tensor<128x512xf32>) -> tensor<128x512xf32>
-
-  // Add bias (this should be fused with matmul!)
-  %result = linalg.add
-    ins(%matmul, %bias : tensor<128x512xf32>, tensor<128x512xf32>)
-    outs(%init : tensor<128x512xf32>) -> tensor<128x512xf32>
-
-  return %result : tensor<128x512xf32>
+module {
+  func.func @matmul_with_bias(%A: tensor<4096x4096xf32>, 
+                              %B: tensor<4096x4096xf32>,
+                              %bias: tensor<4096x4096xf32>) -> tensor<4096x4096xf32> {
+    %cst = arith.constant 0.000000e+00 : f32
+    %init = tensor.empty() : tensor<4096x4096xf32>
+    %C = linalg.fill ins(%cst : f32) outs(%init : tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
+    
+    // MATMUL
+    %C_result = linalg.matmul ins(%A, %B : tensor<4096x4096xf32>, tensor<4096x4096xf32>)
+                             outs(%C : tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
+    
+    // ADD BIAS (separate operation)
+    %bias_init = tensor.empty() : tensor<4096x4096xf32>
+    %result = linalg.add ins(%C_result, %bias : tensor<4096x4096xf32>, tensor<4096x4096xf32>)
+                         outs(%bias_init : tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
+    
+    return %result : tensor<4096x4096xf32>
+  }
 }
