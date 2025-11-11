@@ -9,6 +9,7 @@ matmul_omp
 openblas
 reference
 
+test/output.ll
 
 # CMake generated files
 CMakeFiles/
