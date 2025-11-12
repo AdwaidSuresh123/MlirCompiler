@@ -20,5 +20,4 @@ def Nova_Dialect : Dialect {
 
   let usePropertiesForAttributes = 0;
 }
-
 #endif // NOVA_DIALECT

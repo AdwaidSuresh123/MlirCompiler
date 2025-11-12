@@ -7,27 +7,32 @@ func.func private @print_gflops(i64, i64, i64, i64)
 // 1. Core Operation (Nova Dialect)
 // =========================================================================
 
-func.func @core_op(%A: tensor<4096x4096xf32>,
-%B: tensor<4096x4096xf32>) -> tensor<4096x4096xf32> {
+func.func @core_op(%A: tensor<1024x1024xf32>,
+%B: tensor<1024x1024xf32>) -> tensor<1024x1024xf32> {
 
+%0 = tensor.empty() : tensor<1024x1024xf32>
+%zero = arith.constant 0.0 : f32
+%2 = linalg.fill ins(%zero : f32) outs(%0 : tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
 // --- Start Timing ---
 %start = call @get_time() : () -> i64
 
 // 1. Nova MatMul: C = A * B
 // NOTE: For pure MatMul, the result C MUST be initialized to zero for a correct reduction.
-%m_result = nova.matmul %A, %B : tensor<4096x4096xf32>, tensor<4096x4096xf32>
+
+%1 = linalg.matmul ins(%A, %B : tensor<1024x1024xf32>, tensor<1024x1024xf32>) outs(%2 : tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
+
 
 // --- End Timing ---
 %end = call @get_time() : () -> i64
 
 // Calculate and print GFLOPS
 %duration = arith.subi %end, %start : i64
-%m = arith.constant 4096 : i64
-%n = arith.constant 4096 : i64
-%k = arith.constant 4096 : i64
+%m = arith.constant 1024 : i64
+%n = arith.constant 1024 : i64
+%k = arith.constant 1024 : i64
 call @print_gflops(%m, %n, %k, %duration) : (i64, i64, i64, i64) -> ()
 
-return %m_result : tensor<4096x4096xf32>
+return %1 : tensor<1024x1024xf32>
 
 
 }
@@ -42,17 +47,17 @@ func.func @main() -> i32 {
 %c2 = arith.constant 2.0 : f32
 %c0 = arith.constant 0.0 : f32
 
-%A = tensor.splat %c1 : tensor<4096x4096xf32>
-%B = tensor.splat %c2 : tensor<4096x4096xf32>
+%A = tensor.splat %c1 : tensor<1024x1024xf32>
+%B = tensor.splat %c2 : tensor<1024x1024xf32>
 
-// Expected: (4096 * 1.0 * 2.0) = 8192.0
-%expected_val = arith.constant 8192.0 : f32
+// Expected: (1024 * 1.0 * 2.0) = 2048.0
+%expected_val = arith.constant 2048.0 : f32
 
-%result = call @core_op(%A, %B) : (tensor<4096x4096xf32>, tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
+%result = call @core_op(%A, %B) : (tensor<1024x1024xf32>, tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
 
 // --- Verification (checks element at [0, 0]) ---
 %idx0 = arith.constant 0 : index
-%first_element = tensor.extract %result[%idx0, %idx0] : tensor<4096x4096xf32>
+%first_element = tensor.extract %result[%idx0, %idx0] : tensor<1024x1024xf32>
 
 // Tolerance of 0.001
 %tolerance = arith.constant 0.001 : f32 

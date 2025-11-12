@@ -2,6 +2,7 @@
 
 add_mlir_library(MLIRNovaToLinalgTransforms
   NovaToLinalg.cpp
+  TNovaToLinalg.cpp
   NovaToLinalg.h
 
   DEPENDS

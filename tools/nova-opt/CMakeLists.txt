@@ -23,7 +23,6 @@ target_link_libraries(nova-opt PRIVATE
   AffineFullUnroll
   
   MLIRNovaToArithTransforms
-  MLIRNovaToMathTransforms
   MLIRNovaToLinalgTransforms
   MLIRNovaToTosaTransforms
   NovaPipelines

@@ -16,7 +16,7 @@ add_mlir_library(NovaPipelines
   MLIRNova
   
   MLIRNovaToArithTransforms
-  MLIRNovaToMathTransforms
+  MLIRNovaToLinalgTransforms
   MLIRNovaToTosaTransforms
 
   MLIRSCFToControlFlow

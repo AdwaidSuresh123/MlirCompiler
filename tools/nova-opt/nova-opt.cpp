@@ -27,7 +27,6 @@
 #include "Compiler/Transforms/ParallelizeOuterLoops.h"
 
 #include "Compiler/Translation/NovaToArith/NovaToArith.h"
-#include "Compiler/Translation/NovaToMath/NovaToMath.h"
 #include "Compiler/Translation/NovaToTosa/NovaToTosa.h"
 #include "Compiler/Translation/NovaToLinalg/NovaToLinalg.h"
 #include "Compiler/Pipeline/Pipeline.h"
@@ -69,9 +68,8 @@ int main(int argc, char **argv) {
   mlir::nova::registerAffinePasses();
   
   mlir::nova::registerNovaToArithLoweringPass();
-  mlir::nova::registerNovaToMathLoweringPass();
   mlir::nova::registerNovaToTosaLoweringPass();
-  mlir::nova::registerNovaToLinalgLoweringPass();
+  mlir::nova::regsiterNovaToLinalgLoweringTemplatePass();
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "Nova dialect optimizer\n", registry));

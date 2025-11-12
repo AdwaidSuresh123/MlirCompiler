@@ -27,7 +27,7 @@ def Nova_BroadcastInDimOp : Op<Nova_Dialect, "broadcast_in_dim", [
     
     Example:
       // Broadcast [3] to [2, 3]
-      %result = nova.broadcast_in_dim %input, dims = [1] : (tensor<3xf32>) -> tensor<2x3xf32>
+      %result = nova.broadcast_in_dim %input, dims = [1] : (tensor<3xf32>) 
   }];
 
   let arguments = (ins
@@ -84,7 +84,14 @@ def Nova_ConstantOp : Nova_UnaryOp<"constant", [Pure]> {
     }
   }];
 }
-
+def Nova_AbsOp : Nova_UnaryOp<"abs", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins AnyTensor:$input);
+  let results = (outs AnyTensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
 def Nova_SinOp : Nova_UnaryOp<"sin", [Pure, SameOperandsAndResultType]> {
   let arguments = (ins AnyTensor:$input);
   let results = (outs AnyTensor:$output);
@@ -116,7 +123,7 @@ class Nova_BinaryOp<string mnemonic, list<Trait> commonTraits = []>:
   let results = (outs Nova_Tensor:$result);
 
   let assemblyFormat = [{
-    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
   }];
 
   let hasCanonicalizer = 1;
@@ -266,5 +273,52 @@ def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<I
   
   let hasVerifier = 1;
 }
+/*
+def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let summary = "Convolution operation with padding and stride";
+  let description = [{
+    Performs convolution operation with configurable padding and stride.
+    Example:
+    ```mlir
+    %result = nova.convolution %input, %kernel 
+      {padding = [1, 1], stride = [1, 1]} 
+      : tensor<1x3x32x32xf32>, tensor<64x3x3x3xf32> -> tensor<1x64x32x32xf32>
+    ```
+  }];
+  
+  let arguments = (ins 
+    Nova_Tensor:$lhs,
+    Nova_Tensor:$rhs,
+    ArrayAttr:$padding,
+    ArrayAttr:$stride
+  );
+  
+  let results = (outs Nova_Tensor:$result);
+  
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)}];
+  
+  let extraClassDeclaration = [{
+    //inferReturnTypes
+    
+    // Helper method to get padding values
+    SmallVector<int64_t> getPaddingValues() {
+      SmallVector<int64_t> result;
+      for (auto val : getPadding())
+        result.push_back(llvm::cast<IntegerAttr>(val).getInt());
+      return result;
+    }
+    
+    // Helper method to get stride values
+    SmallVector<int64_t> getStrideValues() {
+      SmallVector<int64_t> result;
+      for (auto val : getStride())
+        result.push_back(llvm::cast<IntegerAttr>(val).getInt());
+      return result;
+    }
+  }];
 
+
+  let hasVerifier=1;
+}*/
 #endif // NOVA_OPS

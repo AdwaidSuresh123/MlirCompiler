@@ -36,7 +36,6 @@
 
 //lowering passes
 #include "Compiler/Translation/NovaToArith/NovaToArith.h"
-#include "Compiler/Translation/NovaToMath/NovaToMath.h"
 #include "Compiler/Translation/NovaToTosa/NovaToTosa.h"
 #include "Compiler/Translation/NovaToLinalg/NovaToLinalg.h"
 // header of this file
@@ -57,7 +56,6 @@ void mlir::nova::createNovaPipelines(OpPassManager &pm) {
 //pm.addNestedPass<func::FuncOp>(ceateNovaToLinalg());  
   pm.addPass(createNovaToLinalgLoweringPass());
   pm.addPass(createNovaToArithLoweringPass());
-  pm.addPass(createNovaToMathLoweringPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
