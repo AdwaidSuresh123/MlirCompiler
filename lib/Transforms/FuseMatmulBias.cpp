@@ -44,7 +44,7 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     Value A = matmulOp.getDpsInputOperand(0)->get();
     Value B = matmulOp.getDpsInputOperand(1)->get();
 
-    // !! FIX 1: The 'bias' tensor becomes the initial output (accumulator).
+    // The 'bias' tensor becomes the initial output (accumulator).
     Value output = bias;
 
     // Get location for the new operation
@@ -58,7 +58,7 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     // Build affine maps for: (i,j,k) -> A[i,k], B[k,j], C[i,j] (Output)
     auto context = rewriter.getContext();
     
-    // FIX 2: Only 3 indexing maps (A, B, C/Output)
+    // Only 3 indexing maps (A, B, C/Output)
     indexingMaps.push_back(AffineMap::get(3, 0,
         {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(2)}, context)); // A[i,k] - args[0]
     indexingMaps.push_back(AffineMap::get(3, 0,
@@ -75,14 +75,14 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     auto fusedOp = rewriter.create<GenericOp>(
         loc,
         resultType,
-        ValueRange{A, B},     // FIX 3: Inputs are only A and B
-        ValueRange{output},   // FIX 4: Output is the bias tensor
+        ValueRange{A, B},     // Inputs are only A and B
+        ValueRange{output},   // Output is the bias tensor
         indexingMaps,
         iteratorTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
           // args[0] = A[i,k], args[1] = B[k,j], args[2] = C[i,j] (initial value is bias)
           
-          // FIX 5: Loop body is ONLY matmul accumulation (C = C + A * B)
+          // Loop body is ONLY matmul accumulation (C = C + A * B)
           Value mul = b.create<arith::MulFOp>(loc, args[0], args[1]);
           Value partialSum = b.create<arith::AddFOp>(loc, args[2], mul);
           b.create<linalg::YieldOp>(loc, partialSum);

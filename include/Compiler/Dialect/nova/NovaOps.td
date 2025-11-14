@@ -186,14 +186,14 @@ def Nova_DivOp : Nova_BinaryOp<"div", []> {
   }];
 }
 
-def Nova_RemOp : Nova_BinaryOp<"rem", []> {
+def Nova_ModOp : Nova_BinaryOp<"mod", []> {
   let summary = "Elementwise tensor remainder";
   let description = [{
     Performs element-wise remainder of dividend lhs and divisor rhs.
     Computation example: a=[2,7,10] b=[2,2,4] result=[0,1,2]
   
     Example:
-      %r = nova.rem %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
+      %r = nova.mod %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
   }];
 }
 

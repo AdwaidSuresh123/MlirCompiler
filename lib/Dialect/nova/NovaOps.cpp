@@ -212,16 +212,16 @@ LogicalResult DivOp::inferReturnTypes(
 }
 
 //===----------------------------------------------------------------------===//
-// RemOp
+// ModOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult RemOp::verify() { return verifyBinaryOp(*this); }
+LogicalResult ModOp::verify() { return verifyBinaryOp(*this); }
 
-LogicalResult RemOp::inferReturnTypes(
+LogicalResult ModOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<RemOp>(
+  return inferBinaryElementwiseReturnTypes<ModOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 

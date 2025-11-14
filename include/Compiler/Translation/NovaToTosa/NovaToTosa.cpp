@@ -15,10 +15,27 @@
 #include "Compiler/Dialect/nova/NovaDialect.h"
 namespace mlir {
 namespace nova {
+//functions which will be called inside template
+struct NovaOpTosaOp{
 
-//===----------------------------------------------------------------------===//
-// Conversion Patterns
-//===----------------------------------------------------------------------===//
+template <typename OpTy>
+static Value maptop(OpTy op,Type resultType,ValueRange input,OpBuilder* builder){
+  return mappingtosa(op,resultType,input,builder);
+}
+
+private:
+template <typename OpTy>
+static Value mappingtosa(OpTy op,Type resultType,ValueRange input,OpBuilder* builder){
+  return nullptr;
+}
+static Value mappingtosa(nova::MaxOp op,Type resultType,ValueRange input,OpBuilder* builder){
+  return builder ->create<tosa::MaximumOp>(op.getLoc(),resultType,input[0],input[1]);
+}
+static Value mappingtosa(nova::MinOp op,Type resultType,ValueRange input,OpBuilder* builder){
+  return builder->create<tosa::MinimumOp>(op.getLoc(),resultType,input[0],input[1]);
+}
+};
+
 
 // Pattern to convert nova.relu to tosa.relu
 struct NovaReluOpLowering : public OpConversionPattern<ReluOp> {
@@ -36,23 +53,17 @@ struct NovaReluOpLowering : public OpConversionPattern<ReluOp> {
     Attribute zeroAttr;
     
     if (auto floatType = dyn_cast<FloatType>(elementType)) {
-      // For floating point: 0.0
       APFloat zeroVal = APFloat::getZero(floatType.getFloatSemantics());
       zeroAttr = rewriter.getFloatAttr(floatType, zeroVal);
       
     } else if (auto intType = dyn_cast<IntegerType>(elementType)) {
-      // For integer types: 0
       zeroAttr = rewriter.getIntegerAttr(intType, 0);
       
     } else {
       return failure();
     }
-    
-    // Create a splat constant tensor filled with zeros
     DenseElementsAttr zeroTensor = DenseElementsAttr::get(inputType, zeroAttr);
     Value zero = rewriter.create<nova::ConstantOp>(loc, inputType, zeroTensor);
-    
-    // Create tosa.maximum: max(input, 0)
     Value result = rewriter.create<tosa::MaximumOp>(
         loc, inputType, input, zero);
     
@@ -60,12 +71,32 @@ struct NovaReluOpLowering : public OpConversionPattern<ReluOp> {
     return success();
   }
 };
+//
+//creating a template
+template <typename NovaTopTy>
+class NovaToTosaLoweringTemplate :public OpConversionPattern<NovaTopTy>{
+  public:
+  using OpConversionPattern<NovaTopTy>::OpConversionPattern;
+  using OpAdaptor = typename NovaTopTy::Adaptor; //for getting data type dynamically using adaptor
+  LogicalResult matchAndRewrite(NovaTopTy op,OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override{
+    ValueRange operands =adaptor.getOperands();
+    //checking operand is empty or not
+    if(operands.empty ())
+    return rewriter.notifyMatchFailure(op,"expected operands for tosa lowering operations");
+  //getting resultType
+    auto resultType = dyn_cast<RankedTensorType>(op.getType());
+    if (!resultType)
+      return rewriter.notifyMatchFailure(op, "expected ranked tensor result");
+      Value result = NovaOpTosaOp::maptop(
+        op, resultType, operands,&rewriter);
+ 
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
 
 
-//===----------------------------------------------------------------------===//
-// Pass Definition
-//===----------------------------------------------------------------------===//
-
+//pass definition
 namespace {
 struct NovaToTosaLoweringPass
     : public PassWrapper<NovaToTosaLoweringPass, OperationPass<ModuleOp>> {
@@ -86,27 +117,21 @@ struct NovaToTosaLoweringPass
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    
-    // Step 1: Define the conversion target
     ConversionTarget target(getContext());
-    
-    // Mark arith dialect operations as legal
+
     target.addLegalDialect<tosa::TosaDialect, func::FuncDialect>();
     target.addLegalOp<nova::ConstantOp>();
-    // Mark nova dialect operations as illegal (to be converted)
+
     target.addIllegalOp<nova::ReluOp>();
+    target.addIllegalOp<nova::MaxOp>();
+    target.addIllegalOp<nova::MinOp>();
+   
 
     TypeConverter typeConverter;
-    // Add type conversions if your types differ
     typeConverter.addConversion([](Type type) { return type; });
-    
-    // Step 3: Create rewrite patterns
     RewritePatternSet patterns(&getContext());
-    
-    // Populate patterns with our conversion patterns
-    patterns.add<NovaReluOpLowering>(
-        typeConverter, &getContext());
-    // Step 4: Apply the conversion
+    populateNovaToTosaConversionPatterns(patterns);
+
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
       return;
@@ -114,22 +139,16 @@ struct NovaToTosaLoweringPass
   }
 };
 
-} // namespace
+} 
 
-//===----------------------------------------------------------------------===//
-// Pattern Population
-//===----------------------------------------------------------------------===//
+void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
+  patterns.add<NovaReluOpLowering,
+  NovaToTosaLoweringTemplate<nova::MaxOp>,
+  NovaToTosaLoweringTemplate<nova::MinOp>>(
+       patterns.getContext());
+}
 
-// void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns,
-//                                            TypeConverter &typeConverter) {
-//   patterns.add<NovaReluOpLowering>(
-//       typeConverter, patterns.getContext());
-// }
-
-//===----------------------------------------------------------------------===//
-// Pass Registration
-//===----------------------------------------------------------------------===//
-
+//creating a pointer for this pass
 std::unique_ptr<Pass> createNovaToTosaLoweringPass() {
   return std::make_unique<NovaToTosaLoweringPass>();
 }

@@ -92,24 +92,40 @@ private:
     return builder->create<math::AbsIOp>(op.getLoc(),args[0]);
     return nullptr;
   }
+  //div operation
+  static Value mapOpImpl(nova::DivOp op,Type resultType,ArrayRef<Value> args,OpBuilder* builder){
+    if(isa<FloatType>(resultType))
+    return builder->create<arith::DivFOp>(op.getLoc(),args[0],args[1]);
+    if(isa<IntegerType>(resultType))
+    return builder->create<arith::DivUIOp>(op.getLoc(),args[0],args[1]);
+    return nullptr;
+  }
+  //mod operation
+  static Value mapOpImpl(nova::ModOp op,Type resultType,ArrayRef<Value> args,OpBuilder* builder){
+    if(isa<FloatType>(resultType))
+    return builder->create<arith::RemFOp>(op.getLoc(),args[0],args[1]);
+    return nullptr;
+  }
+
+
+
 };
 
 
-// pattern definition
-//single function
+//generic pattern definition
 
 template <typename NovaOpTy>
 class NovaToLinalgElementwiseConverter : public OpConversionPattern<NovaOpTy> {
 public:
   using OpConversionPattern<NovaOpTy>::OpConversionPattern;//creates a constructor
-  using OpAdaptor = typename NovaOpTy::Adaptor;
+  using OpAdaptor = typename NovaOpTy::Adaptor; //for getting data type dynamically using adaptor
 
   LogicalResult
   matchAndRewrite(NovaOpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto operands = adaptor.getOperands();
     if (operands.empty())
-      return rewriter.notifyMatchFailure(op, "expected operands");
+      return rewriter.notifyMatchFailure(op, "expected operands for linalg lowering operations");
     //checking if operand is ranked tensortype
     auto resultType = dyn_cast<RankedTensorType>(op.getType());
     if (!resultType)
@@ -189,6 +205,8 @@ struct NovaToLinalgLoweringPassTemplate
     target.addIllegalOp<nova::PowOp>();
     target.addIllegalOp<nova::SinOp>();
     target.addIllegalOp<nova::BroadcastInDimOp>();
+    target.addIllegalOp<nova::DivOp>();
+    target.addIllegalOp<nova::ModOp>();
   
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
     RewritePatternSet patterns(context);
@@ -223,7 +241,9 @@ void populateNovaToLinalgPatternsTemplate(RewritePatternSet &patterns) {
       NovaToLinalgElementwiseConverter<nova::MulOp>,
       NovaToLinalgElementwiseConverter<nova::PowOp>,
       NovaToLinalgElementwiseConverter<nova::SinOp>,
-      NovaToLinalgElementwiseConverter<nova::AbsOp>  
+      NovaToLinalgElementwiseConverter<nova::AbsOp>,
+      NovaToLinalgElementwiseConverter<nova::DivOp>,
+      NovaToLinalgElementwiseConverter<nova::ModOp> 
   >(patterns.getContext());
 }
 

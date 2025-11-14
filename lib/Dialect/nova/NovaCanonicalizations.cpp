@@ -539,9 +539,9 @@ void DivOp::getCanonicalizationPatterns(RewritePatternSet &results,
   results.add<EliminateDivOne>(context);
 }
 
-void RemOp::getCanonicalizationPatterns(RewritePatternSet &results,
+void ModOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                         MLIRContext *context) {
-  results.add<InsertBroadcastPattern<RemOp>>(context);
+  results.add<InsertBroadcastPattern<ModOp>>(context);
 }
 
 void PowOp::getCanonicalizationPatterns(RewritePatternSet &results,
