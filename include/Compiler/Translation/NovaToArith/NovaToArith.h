@@ -27,8 +27,7 @@ void registerNovaToArithLoweringPass();
 
 /// Populate the given pattern set with patterns that convert Nova ops to Arith ops.
 /// This is useful if you want to integrate these patterns into a larger conversion pass.
-void populateNovaToArithConversionPatterns(RewritePatternSet &patterns,
-                                           TypeConverter &typeConverter);
+void populateNovaToArithConversionPatterns(RewritePatternSet &patterns);
 
 
 

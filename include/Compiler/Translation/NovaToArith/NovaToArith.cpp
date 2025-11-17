@@ -17,34 +17,75 @@
 #include "Compiler/Translation/NovaToArith/NovaToArith.h"
 #include "Compiler/Dialect/nova/NovaOps.h"
 #include "Compiler/Dialect/nova/NovaDialect.h"
+#include "llvm/Support/raw_ostream.h"
+
 namespace mlir {
 namespace nova {
 
 //--------------------------------------constant-----------------------------
 
-struct NovaConstantOpLowering 
-    : public OpConversionPattern<nova::ConstantOp> {
-  using OpConversionPattern<nova::ConstantOp>::OpConversionPattern;
+struct NovaToArithOp{
+  template <typename OpTy>
+  static Value maptop(OpTy op,Type resultType,ValueRange input,OpBuilder* builder){
+    return mappingArith(op,resultType,input,builder);
+  } 
 
-  LogicalResult matchAndRewrite(
-      nova::ConstantOp op, OpAdaptor adaptor,
-      ConversionPatternRewriter &rewriter) const override {
-    
-    // Get the value attribute
-    Attribute valueAttr = op.getValue();
-    
-    // // Check if it's a TypedAttr
-    auto typedAttr = dyn_cast<TypedAttr>(valueAttr);
-    if (!typedAttr) {
-      return rewriter.notifyMatchFailure(
-          op, "constant value must be a TypedAttr");
-    }
-    mlir::Type resultType = op.getResult().getType();
-    // Create the arith.constant operation
-    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, typedAttr);
-    
-    return success();
+  private:
+  template <typename OpTy>
+  static Value mappingArith(OpTy op,Type resultType,ValueRange input,OpBuilder* builder){
+  return nullptr;
   }
+  static Value mappingArith(nova::ConstantOp op,Type resultType,ValueRange input,OpBuilder* builder){
+    return builder ->create<arith::ConstantOp>(op.getLoc(),resultType,op.getValue());
+  }
+};
+
+// struct NovaConstantOpLowering 
+//     : public OpConversionPattern<nova::ConstantOp> {
+//   using OpConversionPattern<nova::ConstantOp>::OpConversionPattern;
+
+//   LogicalResult matchAndRewrite(
+//       nova::ConstantOp op, OpAdaptor adaptor,
+//       ConversionPatternRewriter &rewriter) const override {
+    
+//     // Get the value attribute
+//     Attribute valueAttr = op.getValue();
+    
+//     // // Check if it's a TypedAttr
+//     auto typedAttr = dyn_cast<TypedAttr>(valueAttr);
+//     if (!typedAttr) {
+//       return rewriter.notifyMatchFailure(
+//           op, "constant value must be a TypedAttr");
+//     }
+//     mlir::Type resultType = op.getResult().getType();
+//     // Create the arith.constant operation
+//     rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, typedAttr);
+    
+//     return success();
+//   }
+// };
+
+
+//template
+template <typename NovaArithOp>
+class NovaArithConversionPattern : public OpConversionPattern<NovaArithOp>{
+   public :
+   using OpConversionPattern<NovaArithOp> :: OpConversionPattern;
+   using OpAdaptor = typename NovaArithOp::Adaptor;
+
+   LogicalResult matchAndRewrite(NovaArithOp op,OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override {
+    ValueRange operands = adaptor.getOperands();
+
+    auto resultType = dyn_cast<RankedTensorType>(op.getType());
+    if(!resultType)
+    return rewriter.notifyMatchFailure(op,"Needs Tensor Type");
+
+    Value result = NovaToArithOp::maptop(op,resultType,operands,&rewriter);
+    if (!result)
+      return rewriter.notifyMatchFailure(op, "Mapping to Arith failed or returned null");
+    rewriter.replaceOp(op,result);
+    return success();
+   }
 };
 
 
@@ -73,16 +114,13 @@ struct NovaToArithLoweringPass
     ConversionTarget target(getContext());
     
     target.addLegalDialect<arith::ArithDialect>();
-    
-    target.addIllegalOp<nova::AddOp, nova::SubOp,nova::ConstantOp>();
-    
-    TypeConverter typeConverter;
-    typeConverter.addConversion([](Type type) { return type; });
-    
+    target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
+    target.addIllegalOp<nova::ConstantOp>();
+
     RewritePatternSet patterns(&getContext());
+
     
-    patterns.add<NovaConstantOpLowering>(
-        typeConverter, &getContext());
+    populateNovaToArithConversionPatterns(patterns);
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
       return;
@@ -92,6 +130,11 @@ struct NovaToArithLoweringPass
 
 } // namespace
 
+void populateNovaToArithConversionPatterns(RewritePatternSet &patterns) {
+  patterns.add<NovaArithConversionPattern<nova::ConstantOp>>(
+    patterns.getContext()
+  );
+}
 
 std::unique_ptr<Pass> createNovaToArithLoweringPass() {
   return std::make_unique<NovaToArithLoweringPass>();

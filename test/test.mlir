@@ -1,6 +1,7 @@
-// Test with small matrices first
-// Change your test2.mlir to use 8x8 matrices temporarily
-func.func @core_op(%A: tensor<8x8xf32>, %B: tensor<8x8xf32>) -> tensor<8x8xf32> {
-  %m_result = nova.matmul %A, %B : tensor<8x8xf32>, tensor<8x8xf32>
-  return %m_result : tensor<8x8xf32>
+func.func @main(%input1: tensor<4096x4096xf32>, 
+                %input2: tensor<4096x4096xf32>,
+                %input3: tensor<4096xf32>) -> tensor<1xf32> {
+  %A = nova.constant {value = dense<[1.0]> : tensor<1xf32>} : tensor<1xf32>
+  return %A : tensor<1xf32>
 }
+// convert-nova-to-tosa --convert-nova-to-linalg --convert-nova-to-arith 

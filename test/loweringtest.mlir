@@ -10,8 +10,11 @@ func.func @main(%input1: tensor<4096x4096xf32>,
   %G = nova.sin  %E: tensor<4096x4096xf32>
   %H = nova.abs  %F: tensor<4096x4096xf32>
   %I = nova.relu %G:tensor<4096x4096xf32>
+
   %J=nova.div %H,%I:tensor<4096x4096xf32>,tensor<4096x4096xf32>
+
   %K=nova.mod %I,%J:tensor<4096x4096xf32>,tensor<4096x4096xf32>
+  
   %L=nova.max %J,%K:tensor<4096x4096xf32>,tensor<4096x4096xf32>
   %M=nova.min %K,%L:tensor<4096x4096xf32>,tensor<4096x4096xf32>
   return %M : tensor<4096x4096xf32>

@@ -77,7 +77,7 @@ template <typename NovaTopTy>
 class NovaToTosaLoweringTemplate :public OpConversionPattern<NovaTopTy>{
   public:
   using OpConversionPattern<NovaTopTy>::OpConversionPattern;
-  using OpAdaptor = typename NovaTopTy::Adaptor; //for getting data type dynamically using adaptor
+  using OpAdaptor = typename NovaTopTy::Adaptor; //for getting all meta data dynamically using adaptor
   LogicalResult matchAndRewrite(NovaTopTy op,OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override{
     ValueRange operands =adaptor.getOperands();
     //checking operand is empty or not

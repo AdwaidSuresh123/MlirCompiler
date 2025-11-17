@@ -11,13 +11,12 @@
 #include "Compiler/Dialect/nova/NovaOps.h"
 #include "Compiler/Dialect/nova/NovaDialect.h"
 
+
 namespace mlir {
 namespace nova {
 
-//===----------------------------------------------------------------------===//
 // Conversion Patterns
-//===----------------------------------------------------------------------===//
-//-----------------------------------------------------------------------------
+
 struct NovaBroadcastInDimOpLowering : public OpConversionPattern<nova::BroadcastInDimOp> {
   using OpConversionPattern<nova::BroadcastInDimOp>::OpConversionPattern;
   
