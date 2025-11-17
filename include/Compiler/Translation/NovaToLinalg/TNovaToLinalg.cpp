@@ -101,13 +101,31 @@ private:
     return nullptr;
   }
   //mod operation
+  //only float type
   static Value mapOpImpl(nova::ModOp op,Type resultType,ArrayRef<Value> args,OpBuilder* builder){
     if(isa<FloatType>(resultType))
     return builder->create<arith::RemFOp>(op.getLoc(),args[0],args[1]);
     return nullptr;
   }
-
-
+  //and operation
+  //only integer type
+  static Value mapOpImpl(nova::AndOp op,Type resultType,ArrayRef<Value> args,OpBuilder* builder){
+    if(isa<IntegerType>(resultType))
+    return builder ->create<arith::AndIOp>(op.getLoc(),args[0],args[1]);
+    return nullptr;
+  }
+  // //or operation
+    static Value mapOpImpl(nova::OrOp op,Type resultType,ArrayRef<Value> args,OpBuilder* builder){
+    if(isa<IntegerType>(resultType))
+    return builder ->create<arith::OrIOp>(op.getLoc(),args[0],args[1]);
+    return nullptr;
+  }
+  // //xor operation
+    static Value mapOpImpl(nova::XorOp op,Type resultType,ArrayRef<Value> args,OpBuilder* builder){
+    if(isa<IntegerType>(resultType))
+    return builder ->create<arith::XOrIOp>(op.getLoc(),args[0],args[1]);
+    return nullptr;
+  }
 
 };
 
@@ -207,7 +225,10 @@ struct NovaToLinalgLoweringPassTemplate
     target.addIllegalOp<nova::BroadcastInDimOp>();
     target.addIllegalOp<nova::DivOp>();
     target.addIllegalOp<nova::ModOp>();
-  
+    target.addIllegalOp<nova::AndOp>();
+    target.addIllegalOp<nova::OrOp>();
+    target.addIllegalOp<nova::XorOp>();
+
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
     RewritePatternSet patterns(context);
     populateNovaToLinalgPatterns(patterns); 
@@ -243,7 +264,11 @@ void populateNovaToLinalgPatternsTemplate(RewritePatternSet &patterns) {
       NovaToLinalgElementwiseConverter<nova::SinOp>,
       NovaToLinalgElementwiseConverter<nova::AbsOp>,
       NovaToLinalgElementwiseConverter<nova::DivOp>,
-      NovaToLinalgElementwiseConverter<nova::ModOp> 
+      NovaToLinalgElementwiseConverter<nova::ModOp>,
+      NovaToLinalgElementwiseConverter<nova::AndOp>, 
+      NovaToLinalgElementwiseConverter<nova::OrOp>, 
+      NovaToLinalgElementwiseConverter<nova::XorOp>
+
   >(patterns.getContext());
 }
 

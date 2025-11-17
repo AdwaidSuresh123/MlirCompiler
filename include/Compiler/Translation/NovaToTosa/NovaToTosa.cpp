@@ -34,6 +34,17 @@ static Value mappingtosa(nova::MaxOp op,Type resultType,ValueRange input,OpBuild
 static Value mappingtosa(nova::MinOp op,Type resultType,ValueRange input,OpBuilder* builder){
   return builder->create<tosa::MinimumOp>(op.getLoc(),resultType,input[0],input[1]);
 }
+static Value mappingtosa(nova::AndOp op,Type resultType,ValueRange input,OpBuilder* builder){
+  return builder-> create<tosa::BitwiseAndOp>(op.getLoc(),resultType,input[0],input[1]);
+}
+static Value mappingtosa(nova::OrOp op,Type resultType,ValueRange input,OpBuilder* builder){
+  return builder-> create<tosa::BitwiseOrOp>(op.getLoc(),resultType,input[0],input[1]);
+}
+
+static Value mappingtosa(nova::XorOp op,Type resultType,ValueRange input,OpBuilder* builder){
+  return builder->create<tosa::BitwiseXorOp>(op.getLoc(),resultType,input[0],input[1]);
+}
+
 };
 
 
@@ -125,6 +136,9 @@ struct NovaToTosaLoweringPass
     target.addIllegalOp<nova::ReluOp>();
     target.addIllegalOp<nova::MaxOp>();
     target.addIllegalOp<nova::MinOp>();
+    target.addIllegalOp<nova::AndOp>();
+    target.addIllegalOp<nova::OrOp>();
+    target.addIllegalOp<nova::XorOp>();
    
 
     TypeConverter typeConverter;
@@ -144,7 +158,11 @@ struct NovaToTosaLoweringPass
 void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
   patterns.add<NovaReluOpLowering,
   NovaToTosaLoweringTemplate<nova::MaxOp>,
-  NovaToTosaLoweringTemplate<nova::MinOp>>(
+  NovaToTosaLoweringTemplate<nova::MinOp>,
+  NovaToTosaLoweringTemplate<nova::AndOp>,
+  NovaToTosaLoweringTemplate<nova::OrOp>,
+  NovaToTosaLoweringTemplate<nova::XorOp>
+  >(
        patterns.getContext());
 }
 

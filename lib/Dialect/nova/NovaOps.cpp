@@ -11,9 +11,11 @@ using namespace mlir::nova;
 #define GET_OP_CLASSES
 #include "Compiler/Dialect/nova/NovaOps.cpp.inc"
 
-//===----------------------------------------------------------------------===//
+#include "Compiler/Dialect/nova/NovaOpsEnums.cpp.inc"
+#include "Compiler/Dialect/nova/NovaOpsAttributes.cpp.inc"
+ 
 // Helper Functions
-//===----------------------------------------------------------------------===//
+
 
 /// Shared implementation for binary elementwise type inference with broadcasting
 template<typename OpType>
@@ -102,9 +104,9 @@ static LogicalResult verifyBinaryOp(OpType op) {
   return success();
 }
 
-//===----------------------------------------------------------------------===//
+
 // BroadcastInDimOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult BroadcastInDimOp::verify() {
   auto operandType = dyn_cast<RankedTensorType>(getOperand().getType());
@@ -155,9 +157,9 @@ LogicalResult BroadcastInDimOp::verify() {
   return success();
 }
 
-//===----------------------------------------------------------------------===//
+
 // AddOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult AddOp::verify() { return verifyBinaryOp(*this); }
 
@@ -169,9 +171,9 @@ LogicalResult AddOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // SubOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult SubOp::verify() { return verifyBinaryOp(*this); }
 
@@ -183,9 +185,9 @@ LogicalResult SubOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // MulOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult MulOp::verify() { return verifyBinaryOp(*this); }
 
@@ -197,9 +199,9 @@ LogicalResult MulOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // DivOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult DivOp::verify() { return verifyBinaryOp(*this); }
 
@@ -211,9 +213,9 @@ LogicalResult DivOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // ModOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult ModOp::verify() { return verifyBinaryOp(*this); }
 
@@ -225,9 +227,9 @@ LogicalResult ModOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // PowOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult PowOp::verify() { return verifyBinaryOp(*this); }
 
@@ -239,9 +241,9 @@ LogicalResult PowOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // MaxOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult MaxOp::verify() { return verifyBinaryOp(*this); }
 
@@ -253,9 +255,9 @@ LogicalResult MaxOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // MinOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult MinOp::verify() { return verifyBinaryOp(*this); }
 
@@ -267,9 +269,9 @@ LogicalResult MinOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // AndOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult AndOp::verify() { return verifyBinaryOp(*this); }
 
@@ -281,9 +283,9 @@ LogicalResult AndOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // OrOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult OrOp::verify() { return verifyBinaryOp(*this); }
 
@@ -295,9 +297,9 @@ LogicalResult OrOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-//===----------------------------------------------------------------------===//
+
 // XorOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult XorOp::verify() { return verifyBinaryOp(*this); }
 
@@ -308,10 +310,52 @@ LogicalResult XorOp::inferReturnTypes(
   return inferBinaryElementwiseReturnTypes<XorOp>(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
+//---------------------------------comparison-----------------
 
-//===----------------------------------------------------------------------===//
+void CompareOp::build(OpBuilder &builder, OperationState &state,
+                      Value lhs, Value rhs, ComparisonType kind) {
+  state.addOperands({lhs, rhs});
+  state.addAttribute("kind", 
+                     builder.getI32IntegerAttr(static_cast<int32_t>(kind)));
+  Type resultType = RankedTensorType::get({}, builder.getI1Type());
+  state.addTypes(resultType);
+}
+LogicalResult CompareOp::verify() { 
+  auto lhsType = getLhs().getType();
+  auto rhsType = getRhs().getType();
+  
+  // Verify that input shapes match
+  if (lhsType.getShape() != rhsType.getShape()) {
+    return emitOpError("operand shapes must match for comparison");
+  }
+
+  return  success();
+}
+LogicalResult CompareOp::inferReturnTypes(
+    MLIRContext *context,
+    std::optional<Location> location,
+    ValueRange operands,
+    DictionaryAttr attributes,
+    OpaqueProperties properties,
+    RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  
+  if (operands.size() != 2) {
+    if (location) {
+      mlir::emitError(*location) << "compare requires exactly 2 operands";
+    }
+    return failure();
+  }
+
+  // The result type of comparison is always a tensor of i1
+  //the shape is tensor of shape same as inputs
+  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
+  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  inferredReturnTypes.push_back(resultType);
+  return success();
+}
 // MatmulOp
-//===----------------------------------------------------------------------===//
+
 
 LogicalResult MatmulOp::verify() { return verifyBinaryOp(*this); }
 
@@ -426,3 +470,4 @@ LogicalResult MatmulOp::inferReturnTypes(
   inferredReturnTypes.push_back(RankedTensorType::get(resultShape, elementType));
   return success();
 }
+

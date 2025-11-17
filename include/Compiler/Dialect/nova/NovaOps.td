@@ -5,16 +5,57 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "NovaDialect.td"
-
+include "mlir/IR/EnumAttr.td"
 def Nova_ElementType : AnyTypeOf<[I1, I8, I16, I32, I64, F16, BF16, F32, F64]>;
 def Nova_Tensor : TensorOf<[Nova_ElementType]>;
 
-//===----------------------------------------------------------------------===//
+//enum creation
+def Nova_Comparisonenum:I32EnumAttr<"ComparisonType","How operands should be compared",[
+  I32EnumAttrCase<"EQ",0,"eq">,
+  I32EnumAttrCase<"NEQ",1,"neq">,
+  I32EnumAttrCase<"LT",2,"lt">,
+  I32EnumAttrCase<"GT",3,"gt">,
+  I32EnumAttrCase<"LE",4,"le">,
+  I32EnumAttrCase<"GE",5,"ge">
+  ]>{
+    let cppNamespace="::mlir::nova";
+  }
+
+
+//comparison defintion
+def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface
+  ]> {
+  let summary="compare operation";
+
+  let description="elementwise comparison";
+  let arguments =(ins
+  Nova_Comparisonenum:$kind,
+  Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let results =(outs Nova_Tensor:$result);
+  let assemblyFormat=[{
+    `<`$kind `>`$lhs`,`$rhs attr-dict `:`type($lhs)`,`type($rhs)}];
+ let builders=[
+   OpBuilder <(ins "Value":$lhs,"Value":$rhs,"ComparisonType":$kind)>
+ ];
+ let skipDefaultBuilders=1;
+  let hasVerifier=1;
+  let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+
+}
+
+
 // Nova broadcasting.
-//===----------------------------------------------------------------------===//
-//===-----------------------------------------------------------------------------===//
+
 // TODO : Dont add elementwise int the operation. We will add it in lowering pass
-//===-----------------------------------------------------------------------------===//
 
 def Nova_BroadcastInDimOp : Op<Nova_Dialect, "broadcast_in_dim", [
     Pure
@@ -317,7 +358,6 @@ def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfa
       return result;
     }
   }];
-
 
   let hasVerifier=1;
 }*/

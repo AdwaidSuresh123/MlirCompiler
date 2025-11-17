@@ -10,6 +10,9 @@
 #include "Compiler/Dialect/nova/NovaDialect.h"
 
 #define GET_OP_CLASSES
+#include "Compiler/Dialect/nova/NovaOpsAttributes.h.inc"
+
+#include "Compiler/Dialect/nova/NovaOpsEnums.h.inc"
 #include "Compiler/Dialect/nova/NovaOps.h.inc"
 
 #endif // NOVA_OPS_H
