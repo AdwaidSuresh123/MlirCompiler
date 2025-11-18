@@ -4,7 +4,6 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
-
 using namespace mlir;
 using namespace mlir::nova;
 
@@ -15,7 +14,46 @@ using namespace mlir::nova;
 #include "Compiler/Dialect/nova/NovaOpsAttributes.cpp.inc"
  
 // Helper Functions
+//infer return type for unary operations
 
+//exp operation
+
+LogicalResult ExpOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+
+      //for data type
+      mlir::Builder builder(context);   
+      Type floatType = builder.getF32Type();
+// remember to include condition(f64);;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+      //for shape
+      auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
+      //output tensor with shape and type
+      Type returnTensorType = RankedTensorType::get(lhsType.getShape(),floatType);
+      //pushing it
+      inferredReturnTypes.push_back(returnTensorType);
+      return success();
+
+}
+LogicalResult Exp2Op::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+
+      //for data type
+      mlir::Builder builder(context);   
+      Type floatType = builder.getF32Type();
+
+      //for shape
+      auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
+      //output tensor with shape and type
+      Type returnTensorType = RankedTensorType::get(lhsType.getShape(),floatType);
+      //pushing it
+      inferredReturnTypes.push_back(returnTensorType);
+      return success();
+
+}
 
 /// Shared implementation for binary elementwise type inference with broadcasting
 template<typename OpType>

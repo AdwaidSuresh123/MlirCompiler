@@ -44,7 +44,12 @@ static Value mappingtosa(nova::OrOp op,Type resultType,ValueRange input,OpBuilde
 static Value mappingtosa(nova::XorOp op,Type resultType,ValueRange input,OpBuilder* builder){
   return builder->create<tosa::BitwiseXorOp>(op.getLoc(),resultType,input[0],input[1]);
 }
-
+static Value mappingtosa(nova::NegOp op,Type resultType,ValueRange input,OpBuilder* builder){
+  return builder->create<tosa::NegateOp>(op.getLoc(),resultType,input[0]);
+}
+static Value mappingtosa(nova::ReciprocalOp op,Type resultType,ValueRange input,OpBuilder* builder){
+  return builder->create<tosa::ReciprocalOp>(op.getLoc(),resultType,input[0]);
+}
 };
 
 
@@ -139,7 +144,9 @@ struct NovaToTosaLoweringPass
     target.addIllegalOp<nova::AndOp>();
     target.addIllegalOp<nova::OrOp>();
     target.addIllegalOp<nova::XorOp>();
-   
+    target.addIllegalOp<nova::NegOp>();
+    target.addIllegalOp<nova::ReciprocalOp>();
+
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
@@ -161,7 +168,9 @@ void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
   NovaToTosaLoweringTemplate<nova::MinOp>,
   NovaToTosaLoweringTemplate<nova::AndOp>,
   NovaToTosaLoweringTemplate<nova::OrOp>,
-  NovaToTosaLoweringTemplate<nova::XorOp>
+  NovaToTosaLoweringTemplate<nova::XorOp>,
+  NovaToTosaLoweringTemplate<nova::NegOp>,
+  NovaToTosaLoweringTemplate<nova::ReciprocalOp>
   >(
        patterns.getContext());
 }

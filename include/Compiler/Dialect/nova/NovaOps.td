@@ -52,8 +52,9 @@ def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface
 
 }
 
-
+//-----------------------------------------------------------
 // Nova broadcasting.
+//-----------------------------------------------------------
 
 // TODO : Dont add elementwise int the operation. We will add it in lowering pass
 
@@ -85,7 +86,9 @@ def Nova_BroadcastInDimOp : Op<Nova_Dialect, "broadcast_in_dim", [
 
   let hasVerifier = 1;
 }
-
+//-------------------------------------------
+//Base class for unary
+//------------------------------------
 class Nova_UnaryOp<string mnemonic, list<Trait> traits = []> :
     Op<Nova_Dialect,mnemonic, traits # [Pure]> {
   let arguments = (ins Nova_Tensor:$input);
@@ -125,22 +128,160 @@ def Nova_ConstantOp : Nova_UnaryOp<"constant", [Pure]> {
     }
   }];
 }
+
+//-----------ARITHMETIC OPERATIONS-----------------------------
+
 def Nova_AbsOp : Nova_UnaryOp<"abs", [Pure, SameOperandsAndResultType]> {
-  let arguments = (ins AnyTensor:$input);
-  let results = (outs AnyTensor:$output);
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
 }
+
+def Nova_SquareOp : Nova_UnaryOp<"square", [Pure, SameOperandsAndResultType]>{
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+
+def Nova_SqrtOp : Nova_UnaryOp<"sqrt", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+
+def Nova_SignOp : Nova_UnaryOp<"sign", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+
+def Nova_NegOp : Nova_UnaryOp<"neg", [Pure, SameOperandsAndResultType]>{
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+
+def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+//-----------------------------------------------------------------
+// EXPONENTS
+//-----------------------------------------------------------------
+ def Nova_ExpOp : Nova_UnaryOp<"exp", [Pure,InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+
+ def Nova_Exp2Op : Nova_UnaryOp<"exp2", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+
+def Nova_LogOp : Nova_UnaryOp<"log", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+def Nova_Log2Op : Nova_UnaryOp<"log2", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+def Nova_Log10Op : Nova_UnaryOp<"log10", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+
+
+//----------------------------------------------------------------------
+// TRIGNOMETRY
+//----------------------------------------------------------------------
 def Nova_SinOp : Nova_UnaryOp<"sin", [Pure, SameOperandsAndResultType]> {
-  let arguments = (ins AnyTensor:$input);
-  let results = (outs AnyTensor:$output);
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
 }
+
+def Nova_CosOp : Nova_UnaryOp<"cos", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+
+def Nova_TanOp : Nova_UnaryOp<"tan", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+}
+//--------------------------SPECIAL FUNCTIONS----------------------------
+
 def Nova_ReluOp : Nova_UnaryOp<"relu", [Pure, SameOperandsAndResultType]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);

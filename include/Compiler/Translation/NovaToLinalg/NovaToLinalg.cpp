@@ -132,11 +132,49 @@ struct NovaMatmulOpLowering : public OpConversionPattern<nova::MatmulOp> {
     return success();
   }
 };
+//-------------------------------------------------------------------
+// Square
+//-------------------------------------------------------------------
+
+// struct NovaSquareOpLowering : public OpConversionPattern<nova::SquareOp> {
+//   using OpConversionPattern<nova::SquareOp>::OpConversionPattern;
+
+//   LogicalResult matchAndRewrite(nova::SquareOp op,OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override{
+//     auto operands = adaptor.getOperands();
+
+//     Value lhs = operands [0];
+
+//     auto resultType = llvm::dyn_cast<RankedTensorType>(op.getType());
+//     if (!resultType) {
+//       return rewriter.notifyMatchFailure(op, "expected ranked tensor result type");
+//     }
+    
+//     auto inputType = llvm::dyn_cast<RankedTensorType>(lhs.getType());
+//     if (!inputType) {
+//       return rewriter.notifyMatchFailure(op, "expected ranked tensor input type");
+//     }
+
+    
+//     auto loc = op.getLoc();
+
+//     Value emptyTensor = rewriter.create<tensor::EmptyOp>(
+//         loc, resultType.getShape(), resultType.getElementType());
+    
+//     rewriter.replaceOpWithNewOp<linalg::SquareOp>(
+//         op,
+//         ValueRange{lhs},      // inputs
+//         emptyTensor); // outputs
+//     return success();
+    
+//   }
+//};
 
 
 void populateNovaToLinalgPatterns(RewritePatternSet &patterns){
     patterns.add<NovaMatmulOpLowering,
-    NovaBroadcastInDimOpLowering>
+    NovaBroadcastInDimOpLowering
+//    ,NovaSquareOpLowering
+    >
     (patterns.getContext());
 
 }
