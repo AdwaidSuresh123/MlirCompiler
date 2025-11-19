@@ -15,7 +15,7 @@ using namespace mlir::nova;
  
 // Helper Functions
 //infer return type for unary operations
-
+template <typename op
 //exp operation
 
 LogicalResult ExpOp::inferReturnTypes(
