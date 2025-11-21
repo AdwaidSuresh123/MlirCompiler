@@ -4,56 +4,42 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "llvm/ADT/SmallSet.h" 
 using namespace mlir;
 using namespace mlir::nova;
 
 #define GET_OP_CLASSES
-#include "Compiler/Dialect/nova/NovaOps.cpp.inc"
-
 #include "Compiler/Dialect/nova/NovaOpsEnums.cpp.inc"
 #include "Compiler/Dialect/nova/NovaOpsAttributes.cpp.inc"
- 
+#include "Compiler/Dialect/nova/NovaOps.cpp.inc"
+
 // Helper Functions
 //infer return type for unary operations
-template <typename op
-//exp operation
-
-LogicalResult ExpOp::inferReturnTypes(
-    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+static LogicalResult castingInferReturnTypes(
+      MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-
-      //for data type
-      mlir::Builder builder(context);   
-      Type floatType = builder.getF32Type();
-// remember to include condition(f64);;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-      //for shape
-      auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
-      //output tensor with shape and type
-      Type returnTensorType = RankedTensorType::get(lhsType.getShape(),floatType);
-      //pushing it
-      inferredReturnTypes.push_back(returnTensorType);
-      return success();
-
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes
+){
+  mlir::Builder builder(context);
+  auto opType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  //get the element type
+  Type inputElementType = opType.getElementType();
+  Type resultType=inputElementType;
+  if (auto type = dyn_cast<mlir::IntegerType>(inputElementType)) {//returns true if int or else null
+    unsigned bitwidth = type.getWidth();
+    if (bitwidth == 64) {//if i64 then f64 or else for every other f32.
+      resultType = builder.getF64Type();
+    } else {
+      resultType = builder.getF32Type();
+    }  
+}       
+  auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  Type returnTensorType = RankedTensorType::get(lhsType.getShape(),resultType);
+  inferredReturnTypes.push_back(returnTensorType);
+  return success();
 }
-LogicalResult Exp2Op::inferReturnTypes(
-    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
 
-      //for data type
-      mlir::Builder builder(context);   
-      Type floatType = builder.getF32Type();
 
-      //for shape
-      auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
-      //output tensor with shape and type
-      Type returnTensorType = RankedTensorType::get(lhsType.getShape(),floatType);
-      //pushing it
-      inferredReturnTypes.push_back(returnTensorType);
-      return success();
-
-}
 
 /// Shared implementation for binary elementwise type inference with broadcasting
 template<typename OpType>
@@ -369,6 +355,187 @@ LogicalResult CompareOp::verify() {
 
   return  success();
 }
+LogicalResult SignOp::inferReturnTypes(
+    MLIRContext *context,
+    std::optional<Location> location,
+    ValueRange operands,
+    DictionaryAttr attributes,
+    OpaqueProperties properties,
+    RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  
+  if (operands.size() != 1) {
+    if (location) {
+      mlir::emitError(*location) << "sign requires exactly 1 operands";
+    }
+    return failure();
+  }
+
+  // The result type of sign is always int8
+  //the shape is tensor of shape same as inputs
+  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
+  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 8));
+  inferredReturnTypes.push_back(resultType);
+  return success();
+}
+void ArgmaxOp::build(OpBuilder &builder, OperationState &state,
+                  Value input, int64_t dimension,
+                     bool keepdims, Type resultType) {
+  state.addOperands(input);  
+  if (!dimension) {
+state.addAttribute("dimension", builder.getIntegerAttr(builder.getI64Type(), dimension));
+  }
+  
+  if (keepdims) {
+    state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
+  }
+  
+  state.addTypes(resultType);
+}
+LogicalResult ArgmaxOp::inferReturnTypes(
+    MLIRContext *context,
+    std::optional<Location> location,
+    ValueRange operands,
+    DictionaryAttr attributes,
+    OpaqueProperties properties,
+    RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  
+  auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  if (!inputType) return failure();
+  
+  auto inputShape = inputType.getShape();
+  size_t inputRank = inputShape.size();
+  
+
+  bool keepDims = false;
+  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims"))) {
+    keepDims = keepDimsAttr.getValue();
+  }
+  
+  auto dimAttr = dyn_cast_or_null<IntegerAttr>(attributes.get("dimension"));
+  
+  llvm::SmallDenseSet<int64_t, 4> dimsToReduce;
+  
+  if (dimAttr) {
+      int64_t axis = dimAttr.getValue().getSExtValue(); 
+      if (axis < 0) {
+        axis += inputRank;
+      }
+      if (axis >= 0 && static_cast<size_t>(axis) < inputRank) {
+        dimsToReduce.insert(axis);
+      } else {
+        if (location.has_value()) {
+          return mlir::emitError(*location,"reduction axis is out of bounds");
+        }
+        return failure();
+      }
+
+  } else {
+    // No dimensions specified - reduce all dimensions
+    for (size_t i = 0; i < inputRank; ++i) {
+      dimsToReduce.insert(i);
+    }
+  }
+  
+  llvm::SmallVector<int64_t, 4> resultShape;
+  for (size_t i = 0; i < inputRank; ++i) {
+    if (dimsToReduce.count(i)) {
+      if (keepDims) {
+        resultShape.push_back(1);
+      }
+    } else {
+      resultShape.push_back(inputShape[i]);
+    }
+  }
+  
+  if (resultShape.empty() && !keepDims) {
+    inferredReturnTypes.push_back(RankedTensorType::get({},  IntegerType::get(context, 32)));
+  } else {
+    inferredReturnTypes.push_back(RankedTensorType::get(resultShape,  IntegerType::get(context, 32)));
+  }
+  
+  return success();
+
+}
+void ArgminOp::build(OpBuilder &builder, OperationState &state,
+                  Value input, int64_t dimension,
+                     bool keepdims, Type resultType) {
+  state.addOperands(input);  
+
+state.addAttribute("dimension", builder.getIntegerAttr(builder.getI64Type(), dimension));
+
+  if (keepdims) {
+    state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
+  }
+  
+  state.addTypes(resultType);
+}
+LogicalResult ArgminOp::inferReturnTypes(
+    MLIRContext *context,
+    std::optional<Location> location,
+    ValueRange operands,
+    DictionaryAttr attributes,
+    OpaqueProperties properties,
+    RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  
+  auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  if (!inputType) return failure();
+  
+  auto inputShape = inputType.getShape();
+  size_t inputRank = inputShape.size();
+  
+
+  bool keepDims = false;
+  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims"))) {
+    keepDims = keepDimsAttr.getValue();
+  }
+  
+  auto dimAttr = dyn_cast_or_null<IntegerAttr>(attributes.get("dimension"));
+  
+  llvm::SmallDenseSet<int64_t, 4> dimsToReduce;
+  
+  if (dimAttr) {
+      int64_t axis = dimAttr.getValue().getSExtValue(); 
+      if (axis < 0) {
+        axis += inputRank;
+      }
+      if (axis >= 0 && static_cast<size_t>(axis) < inputRank) {
+        dimsToReduce.insert(axis);
+      } else {
+        if (location.has_value()) {
+          return mlir::emitError(*location,"reduction axis is out of bounds");
+        }
+        return failure();
+      }
+  } else {
+    // No dimensions specified - reduce all dimensions
+    for (size_t i = 0; i < inputRank; ++i) {
+      dimsToReduce.insert(i);
+    }
+  }
+  
+  llvm::SmallVector<int64_t, 4> resultShape;
+  for (size_t i = 0; i < inputRank; ++i) {
+    if (dimsToReduce.count(i)) {
+      if (keepDims) {
+        resultShape.push_back(1);
+      }
+    } else {
+      resultShape.push_back(inputShape[i]);
+    }
+  }
+  
+  if (resultShape.empty() && !keepDims) {
+    inferredReturnTypes.push_back(RankedTensorType::get({},  IntegerType::get(context, 32)));
+  } else {
+    inferredReturnTypes.push_back(RankedTensorType::get(resultShape,  IntegerType::get(context, 32)));
+  }
+  
+  return success();
+
+}
 LogicalResult CompareOp::inferReturnTypes(
     MLIRContext *context,
     std::optional<Location> location,
@@ -508,4 +675,211 @@ LogicalResult MatmulOp::inferReturnTypes(
   inferredReturnTypes.push_back(RankedTensorType::get(resultShape, elementType));
   return success();
 }
+//---------------------------------reduce op----------------------------------------------------
 
+
+
+void ReduceOp::build(OpBuilder &builder, OperationState &state,
+                     ReductionKind kind, Value input, ArrayRef<int64_t> dimension,
+                     bool keepdims, Type resultType) {
+  state.addOperands(input);
+  state.addAttribute("kind", builder.getI32IntegerAttr(static_cast<int32_t>(kind)));
+  
+  if (!dimension.empty()) {
+    state.addAttribute("dimension", builder.getI64ArrayAttr(dimension));
+  }
+  
+  if (keepdims) {
+    state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
+  }
+  
+  state.addTypes(resultType);
+}
+LogicalResult ReduceOp::inferReturnTypes(
+    MLIRContext *context,
+    std::optional<Location> location,
+    ValueRange operands,
+    DictionaryAttr attributes,
+    OpaqueProperties properties,
+    RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  
+  auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  if (!inputType) return failure();
+  
+  auto inputShape = inputType.getShape();
+  Type elementType = inputType.getElementType();
+  size_t inputRank = inputShape.size();
+  
+
+  bool keepDims = false;
+  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims"))) {
+    keepDims = keepDimsAttr.getValue();
+  }
+  
+  auto dimAttr = dyn_cast_or_null<ArrayAttr>(attributes.get("dimension"));
+  
+  llvm::SmallDenseSet<int64_t, 4> dimsToReduce;
+  
+  if (dimAttr) {
+    for (auto axisAttr : dimAttr.getAsValueRange<IntegerAttr>()) {
+      int64_t axis = axisAttr.getSExtValue();
+      if (axis < 0) {
+        axis += inputRank;
+      }
+      if (axis >= 0 && static_cast<size_t>(axis) < inputRank) {
+        dimsToReduce.insert(axis);
+      } else {
+        if (location.has_value()) {
+          return mlir::emitError(*location,"reduction axis is out of bounds");
+        }
+        return failure();
+      }
+    }
+  } else {
+    // No dimensions specified - reduce all dimensions
+    for (size_t i = 0; i < inputRank; ++i) {
+      dimsToReduce.insert(i);
+    }
+  }
+  
+  llvm::SmallVector<int64_t, 4> resultShape;
+  for (size_t i = 0; i < inputRank; ++i) {
+    if (dimsToReduce.count(i)) {
+      if (keepDims) {
+        resultShape.push_back(1);
+      }
+    } else {
+      resultShape.push_back(inputShape[i]);
+    }
+  }
+  
+  if (resultShape.empty() && !keepDims) {
+    inferredReturnTypes.push_back(RankedTensorType::get({}, elementType));
+  } else {
+    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, elementType));
+  }
+  
+  return success();
+
+    }
+
+LogicalResult ReduceOp::verify() {
+  auto inputType = dyn_cast<RankedTensorType>(getInput().getType());
+  if (!inputType) {
+    return emitOpError("input must be a ranked tensor");
+  }
+    
+  auto outputType = dyn_cast<RankedTensorType>(getOutput().getType());
+  if (!outputType) {
+    return emitOpError("output must be a ranked tensor");
+  }
+  
+  int64_t inputRank = inputType.getRank();
+  
+  // Verify Dimension are valid
+  if (auto dimensionAttr = getDimensionAttr()) {
+    llvm::SmallVector<int64_t> DimensionVec;
+    for (auto dimension : dimensionAttr.getAsValueRange<IntegerAttr>()) {
+      int64_t dimensionVal = dimension.getZExtValue();
+      if (dimensionVal < 0 || dimensionVal >= inputRank) {
+        return emitOpError("axis ") << dimensionVal << " is out of range [0, " 
+                                     << inputRank << ")";
+      }
+      DimensionVec.push_back(dimensionVal);
+    }
+    
+    // Check for duplicate Dimension
+    llvm::SmallSet<int64_t, 4> uniqueDimension(DimensionVec.begin(), DimensionVec.end());
+    if (uniqueDimension.size() != DimensionVec.size()) {
+      return emitOpError("duplicate axis found in Dimension attribute");
+    }
+  }
+  
+  // For argmax/argmin, output element type should be integer
+  // auto kind = getKind();
+  // if (kind == ReductionKind::ARGMAX || kind == ReductionKind::ARGMIN) {
+  //   if (!outputType.getElementType().isInteger(64)) {
+  //     return emitOpError("argmax/argmin output must have i64 element type, got ")
+  //            << outputType.getElementType();
+  //   }
+  // } else {
+    // For other reductions, element types should match
+  //   if (inputType.getElementType() != outputType.getElementType()) {
+  //     return emitOpError("input and output element types must match for non-arg reductions, got input ")
+  //            << inputType.getElementType() << " and output " 
+  //            << outputType.getElementType();
+  //   }
+  // }
+  
+  // Verify output shape matches expected reduced shape
+  llvm::SmallVector<int64_t> expectedShape;
+  if (auto dimensionAttr = getDimensionAttr()) {
+    llvm::SmallSet<int64_t, 4> reduceDimension;
+    for (auto axis : dimensionAttr.getAsValueRange<IntegerAttr>()) {
+      reduceDimension.insert(axis.getZExtValue());
+    }
+    
+    for (int64_t i = 0; i < inputRank; ++i) {
+      if (reduceDimension.contains(i)) {
+        if (getKeepdims()) {
+          expectedShape.push_back(1);
+        }
+      } else {
+        expectedShape.push_back(inputType.getDimSize(i));
+      }
+    }
+  } else {
+    // No Dimension specified - reduce all dimensions
+    if (getKeepdims()) {
+      expectedShape.assign(inputRank, 1);
+    }
+    // else expectedShape is empty (scalar result)
+  }
+  
+  auto outputShape = outputType.getShape();
+  if (outputShape.size() != expectedShape.size()) {
+    return emitOpError("output rank does not match expected rank, expected ")
+           << expectedShape.size() << " got " << outputShape.size();
+  }
+  
+  for (size_t i = 0; i < expectedShape.size(); ++i) {
+    if (expectedShape[i] != outputShape[i] && expectedShape[i] != ShapedType::kDynamic) {
+      return emitOpError("output shape mismatch at dimension ") << i
+             << ", expected " << expectedShape[i] << " got " << outputShape[i];
+    }
+  }
+  
+  return success();
+}
+
+//----------------
+//------------------------casting infer return types---------------------------------
+#define INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Op)                \
+  LogicalResult Op::inferReturnTypes(                                 \
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,\
+    DictionaryAttr attributes, OpaqueProperties properties,\
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {  \
+    return castingInferReturnTypes(                                   \
+        context, loc, operands, attributes, properties, regions, \
+        inferredReturnTypes);                                        \
+  }
+//exp operations
+
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(ExpOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Exp2Op);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(LogOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Log2Op);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Log10Op);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SinOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(CosOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(TanOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SinhOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(CoshOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(TanhOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AsinOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AcosOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AtanOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AsinhOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AcoshOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AtanhOp);

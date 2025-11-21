@@ -51,7 +51,126 @@ def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface
   }];
 
 }
+//-------------------------------------------------------reduction operations---------------------------------------------------------------------------------------
+def Nova_ReductionKind : I32EnumAttr<"ReductionKind",
+    "Reduction operation kind", [
+  I32EnumAttrCase<"MAX", 0, "max">,
+  I32EnumAttrCase<"MIN", 1, "min">,
+  I32EnumAttrCase<"SUM", 2, "sum">,
+  I32EnumAttrCase<"PRODUCT", 3, "product">,
+  I32EnumAttrCase<"MEAN", 8, "mean">,
+  I32EnumAttrCase<"ALL", 7, "all">,
+  I32EnumAttrCase<"ANY", 4, "any">
 
+]> 
+{
+  let cppNamespace = "::mlir::nova";
+}
+def Nova_ReduceOp : Op<Nova_Dialect,"reduce", [Pure,InferTypeOpInterface]> {
+  let summary = "Generic reduction operation";
+  let description = [{
+    Performs reduction operation across specified dimensions of a tensor.
+    The reduction kind is specified by the 'kind' attribute.
+    
+    Examples:
+    ```mlir
+    // Reduce all dimensions with max
+    %result = nova.reduce<max> %input : tensor<4x8xf32> -> tensor<f32>
+    
+    // Reduce along specific dimension with sum
+    %result = nova.reduce<sum> %input dimension = [0] : tensor<4x8xf32> -> tensor<8xf32>
+    
+    // Keep reduced dimensions with min
+    %result = nova.reduce<min> %input dimension = [1] keepdims = true : 
+              tensor<4x8xf32> -> tensor<4x1xf32>
+    
+    // Product reduction
+    %result = nova.reduce<product> %input : tensor<4x8xf32> -> tensor<f32>
+    ```}];
+      let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+  
+  let arguments = (ins 
+    Nova_ReductionKind:$kind,
+    Nova_Tensor:$input,
+    OptionalAttr<I64ArrayAttr>:$dimension,
+    DefaultValuedAttr<BoolAttr, "false">:$keepdims
+  );
+    let results = (outs Nova_Tensor:$output);
+  let builders = [
+    OpBuilder<(ins "ReductionKind":$kind, "Value":$input, 
+                   "ArrayRef<int64_t>":$dimension, "bool":$keepdims, "Type":$resultType)>
+  ];
+ let skipDefaultBuilders=1;
+  let hasVerifier=1;
+  let assemblyFormat = [{
+    `<` $kind `>` $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)?
+    attr-dict `:` type($input) 
+  }];
+}
+def Nova_ArgmaxOp:Op <Nova_Dialect,"argmax",[Pure,InferTypeOpInterface]>{
+    let arguments = (ins 
+    Nova_Tensor:$input,
+    OptionalAttr<I64Attr>:$dimension,
+    DefaultValuedAttr<BoolAttr, "false">:$keepdims
+  );
+      let results = (outs Nova_Tensor:$output);
+ let skipDefaultBuilders=1;
+  let builders = [
+    OpBuilder<(ins "Value":$input, 
+                   "int64_t":$dimension, "bool":$keepdims, "Type":$resultType)>
+  ];
+        let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+    let assemblyFormat = [{
+     $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)?
+    attr-dict `:` type($input) 
+  }];
+}
+
+def Nova_ArgminOp:Op <Nova_Dialect,"argmin",[Pure,InferTypeOpInterface]>{
+    let arguments = (ins 
+    Nova_Tensor:$input,
+    OptionalAttr<I64Attr>:$dimension,
+    DefaultValuedAttr<BoolAttr, "false">:$keepdims
+  );
+      let results = (outs Nova_Tensor:$output);
+ let skipDefaultBuilders=1;
+  let builders = [
+    OpBuilder<(ins "Value":$input, 
+                   "int64_t":$dimension, "bool":$keepdims, "Type":$resultType)>
+  ];
+        let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+    let assemblyFormat = [{
+     $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)?
+    attr-dict `:` type($input) 
+  }];
+}
 //-----------------------------------------------------------
 // Nova broadcasting.
 //-----------------------------------------------------------
@@ -158,15 +277,24 @@ def Nova_SqrtOp : Nova_UnaryOp<"sqrt", [Pure, SameOperandsAndResultType]> {
   }];
 }
 
-def Nova_SignOp : Nova_UnaryOp<"sign", [Pure, SameOperandsAndResultType]> {
+def Nova_SignOp : Nova_UnaryOp<"sign", [Pure,InferTypeOpInterface ]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
+      let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
 }
-
 def Nova_NegOp : Nova_UnaryOp<"neg", [Pure, SameOperandsAndResultType]>{
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
@@ -174,6 +302,7 @@ def Nova_NegOp : Nova_UnaryOp<"neg", [Pure, SameOperandsAndResultType]>{
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
+  
 }
 
 def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultType]> {
@@ -224,62 +353,286 @@ def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultT
       ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
 } 
-
-def Nova_LogOp : Nova_UnaryOp<"log", [Pure, SameOperandsAndResultType]> {
+ def Nova_LogOp : Nova_UnaryOp<"log", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
-}
-def Nova_Log2Op : Nova_UnaryOp<"log2", [Pure, SameOperandsAndResultType]> {
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+ def Nova_Log2Op : Nova_UnaryOp<"log2", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
-}
-def Nova_Log10Op : Nova_UnaryOp<"log10", [Pure, SameOperandsAndResultType]> {
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+ def Nova_Log10Op : Nova_UnaryOp<"log10", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
-}
-
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
 
 //----------------------------------------------------------------------
 // TRIGNOMETRY
 //----------------------------------------------------------------------
-def Nova_SinOp : Nova_UnaryOp<"sin", [Pure, SameOperandsAndResultType]> {
+ def Nova_SinOp : Nova_UnaryOp<"sin", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
-}
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
 
-def Nova_CosOp : Nova_UnaryOp<"cos", [Pure, SameOperandsAndResultType]> {
+ def Nova_CosOp : Nova_UnaryOp<"cos", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
-}
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
 
-def Nova_TanOp : Nova_UnaryOp<"tan", [Pure, SameOperandsAndResultType]> {
+ def Nova_TanOp : Nova_UnaryOp<"tan", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
-}
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+ def Nova_AsinOp : Nova_UnaryOp<"asin", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+}  
+def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+
+ def Nova_AtanOp : Nova_UnaryOp<"atan", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+ def Nova_SinhOp : Nova_UnaryOp<"sinh", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+
+ def Nova_CoshOp : Nova_UnaryOp<"cosh", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+ def Nova_TanhOp : Nova_UnaryOp<"tanh", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+ def Nova_AsinhOp : Nova_UnaryOp<"asinh", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+
+ def Nova_AcoshOp : Nova_UnaryOp<"acosh", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
+
+ def Nova_AtanhOp : Nova_UnaryOp<"atanh", [Pure, InferTypeOpInterface]> {
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$output);
+  
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+    let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+} 
 //--------------------------SPECIAL FUNCTIONS----------------------------
 
 def Nova_ReluOp : Nova_UnaryOp<"relu", [Pure, SameOperandsAndResultType]> {
@@ -445,6 +798,17 @@ def Nova_XorOp : Nova_BinaryOp<"xor", [Commutative]> {
   }];
 }
 
+def Nova_NotOp : Nova_UnaryOp<"not", [Commutative,SameOperandsAndResultType]> {
+  let summary = "Elementwise logical XOR";
+  let description = [{
+    Performs element-wise logical NOT operation on tensors.
+    Example: a=[true,false,true] result=[false,true,false]
+  
+    Example:
+      %r = nova.not %a tensor<3xi1> -> tensor<2x3xi1>
+  }];
+}
+
 def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
   let results = (outs Nova_Tensor:$result);
@@ -455,6 +819,7 @@ def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<I
   
   let hasVerifier = 1;
 }
+
 /*
 def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Convolution operation with padding and stride";
