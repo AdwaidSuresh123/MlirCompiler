@@ -380,7 +380,7 @@ LogicalResult SignOp::inferReturnTypes(
 }
 void ArgmaxOp::build(OpBuilder &builder, OperationState &state,
                   Value input, int64_t dimension,
-                     bool keepdims, Type resultType) {
+                     bool keepdims,bool ignore_nan, Type resultType) {
   state.addOperands(input);  
   if (!dimension) {
 state.addAttribute("dimension", builder.getIntegerAttr(builder.getI64Type(), dimension));
@@ -389,7 +389,9 @@ state.addAttribute("dimension", builder.getIntegerAttr(builder.getI64Type(), dim
   if (keepdims) {
     state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
   }
-  
+    if (ignore_nan) {
+    state.addAttribute("ignore_nan", builder.getBoolAttr(ignore_nan));
+  }
   state.addTypes(resultType);
 }
 LogicalResult ArgmaxOp::inferReturnTypes(
@@ -458,20 +460,22 @@ LogicalResult ArgmaxOp::inferReturnTypes(
   return success();
 
 }
-void ArgminOp::build(OpBuilder &builder, OperationState &state,
-                  Value input, int64_t dimension,
-                     bool keepdims, Type resultType) {
+void ArgMinOp::build(OpBuilder &builder, OperationState &state,
+                  Value input, int32_t dimension,
+                     bool keepdims,bool ignore_nan ,Type resultType) {
   state.addOperands(input);  
 
-state.addAttribute("dimension", builder.getIntegerAttr(builder.getI64Type(), dimension));
+state.addAttribute("dimension", builder.getIntegerAttr(builder.getI32Type(), dimension));
 
   if (keepdims) {
     state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
   }
-  
+    if (ignore_nan) {
+    state.addAttribute("ignore_nan", builder.getBoolAttr(ignore_nan));
+  }
   state.addTypes(resultType);
 }
-LogicalResult ArgminOp::inferReturnTypes(
+LogicalResult ArgMinOp::inferReturnTypes(
     MLIRContext *context,
     std::optional<Location> location,
     ValueRange operands,
@@ -681,7 +685,7 @@ LogicalResult MatmulOp::inferReturnTypes(
 
 void ReduceOp::build(OpBuilder &builder, OperationState &state,
                      ReductionKind kind, Value input, ArrayRef<int64_t> dimension,
-                     bool keepdims, Type resultType) {
+                     bool keepdims,bool ignore_nan, Type resultType) {
   state.addOperands(input);
   state.addAttribute("kind", builder.getI32IntegerAttr(static_cast<int32_t>(kind)));
   
@@ -692,7 +696,9 @@ void ReduceOp::build(OpBuilder &builder, OperationState &state,
   if (keepdims) {
     state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
   }
-  
+  if(ignore_nan){
+    state.addAttribute("ignore_nan",builder.getBoolAttr(ignore_nan));
+  }
   state.addTypes(resultType);
 }
 LogicalResult ReduceOp::inferReturnTypes(

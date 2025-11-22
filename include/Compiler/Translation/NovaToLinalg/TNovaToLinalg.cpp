@@ -403,7 +403,156 @@ private:
 return nullptr;}
 };
 
+//----------------------------------------------------------------
+//                          Argmin
+//----------------------------------------------------------------
+static TypedAttr createInitialValueForReduceOp(Operation *op, Type elementTy,
+                                               PatternRewriter &rewriter) {
+  if (isa<nova::ArgMinOp>(op) && isa<FloatType>(elementTy))
+  return rewriter.getFloatAttr(
+      elementTy, APFloat::getLargest(
+                     cast<FloatType>(elementTy).getFloatSemantics(), false));
 
+  if (isa<nova::ArgMinOp>(op) && isa<IntegerType>(elementTy))
+    return rewriter.getIntegerAttr(
+        elementTy, APInt::getSignedMaxValue(elementTy.getIntOrFloatBitWidth()));
+                                               
+  return{};
+}
+
+
+class ArgMinConverter : public OpRewritePattern<nova::ArgMinOp> {
+public:
+  using OpRewritePattern<nova::ArgMinOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(nova::ArgMinOp argminOp,
+                                PatternRewriter &rewriter) const final {
+    auto loc = argminOp.getLoc();
+    Value input = argminOp.getInput();
+    auto inputTy = cast<ShapedType>(input.getType());
+    auto resultTy = cast<ShapedType>(argminOp.getOutput().getType());
+    auto inElementTy = inputTy.getElementType();
+    auto outElementTy = resultTy.getElementType();
+    int axis = static_cast<int>(argminOp.getDimension().value());
+    auto resultMinTy = RankedTensorType::get(resultTy.getShape(), inElementTy);
+
+    if (!isa<IntegerType>(outElementTy))
+      return rewriter.notifyMatchFailure(
+          argminOp,
+          "nova.arg_min to linalg.* requires integer-like result type");
+
+    SmallVector<Value> dynDims;
+    for (int i = 0; i < inputTy.getRank(); i++) {
+      if (inputTy.isDynamicDim(i) && i != axis) {
+        dynDims.push_back(rewriter.create<tensor::DimOp>(loc, input, i));
+      }
+    }
+
+    // First fill the output buffer for the index.
+    auto emptyTensorIdx = rewriter
+                              .create<tensor::EmptyOp>(loc, resultTy.getShape(),
+                                                       outElementTy, dynDims)
+                              .getResult();
+    auto fillValueIdx = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIntegerAttr(outElementTy, 0));
+    auto filledTensorIdx =
+        rewriter
+            .create<linalg::FillOp>(loc, ValueRange{fillValueIdx},
+                                    ValueRange{emptyTensorIdx})
+            .result();
+
+    // Second fill the output buffer for the running min.
+    auto emptyTensorMin = rewriter
+                              .create<tensor::EmptyOp>(loc, resultTy.getShape(),
+                                                       inElementTy, dynDims)
+                              .getResult();
+    auto fillValueMinAttr =
+        createInitialValueForReduceOp(argminOp, inElementTy, rewriter);
+
+    if (!fillValueMinAttr)
+      return rewriter.notifyMatchFailure(
+          argminOp, "unsupported nova.argmin element type");
+
+    auto fillValueMin =
+        rewriter.create<arith::ConstantOp>(loc, fillValueMinAttr);
+    auto filledTensorMin =
+        rewriter
+            .create<linalg::FillOp>(loc, ValueRange{fillValueMin},
+                                    ValueRange{emptyTensorMin})
+            .result();
+
+    // We need to reduce along the arg-min axis, with parallel operations along
+    // the rest.
+    SmallVector<utils::IteratorType, 4> iteratorTypes;
+    iteratorTypes.resize(inputTy.getRank(), utils::IteratorType::parallel);
+    iteratorTypes[axis] = utils::IteratorType::reduction;
+
+    SmallVector<AffineExpr, 2> srcExprs;
+    SmallVector<AffineExpr, 2> dstExprs;
+    for (int i = 0, rank = inputTy.getRank(); i != rank; ++i) {
+      srcExprs.push_back(mlir::getAffineDimExpr(i, rewriter.getContext()));
+      if (axis != i)
+        dstExprs.push_back(mlir::getAffineDimExpr(i, rewriter.getContext()));
+    }
+
+    bool didEncounterError = false;
+    auto maps = AffineMap::inferFromExprList({srcExprs, dstExprs, dstExprs},
+                                             rewriter.getContext());
+    auto linalgOp = rewriter.create<linalg::GenericOp>(
+        loc, ArrayRef<Type>({resultTy, resultMinTy}), input,
+        ValueRange({filledTensorIdx, filledTensorMin}), maps, iteratorTypes,
+        [&](OpBuilder &nestedBuilder, Location nestedLoc,
+            ValueRange blockArgs) {
+          auto newValue = blockArgs[0];
+          auto oldIndex = blockArgs[1];
+          auto oldValue = blockArgs[2];
+
+          Value newIndex = rewriter.create<arith::IndexCastOp>(
+              nestedLoc, oldIndex.getType(),
+              rewriter.create<linalg::IndexOp>(loc, axis));
+
+          Value predicate;
+          if (isa<FloatType>(inElementTy)) {
+            if (argminOp.getIgnoreNan()) {
+              // Only update index & min value for non NaN values. If all
+              // values are NaNs, the initial index will be return which is 0.
+              predicate = rewriter.create<arith::CmpFOp>(
+                  nestedLoc, arith::CmpFPredicate::OLT, newValue, oldValue);
+            } else {
+              // Update min value if either of the following is true:
+              // - new value is bigger
+              // - cur min is not NaN and new value is NaN
+              Value lt = rewriter.create<arith::CmpFOp>(
+                  nestedLoc, arith::CmpFPredicate::ULT, newValue, oldValue);
+              Value oldNonNaN = rewriter.create<arith::CmpFOp>(
+                  nestedLoc, arith::CmpFPredicate::ORD, oldValue, oldValue);
+              predicate = rewriter.create<arith::AndIOp>(
+                  nestedLoc, rewriter.getI1Type(), lt, oldNonNaN);
+            }
+          } else if (isa<IntegerType>(inElementTy)) {
+            predicate = rewriter.create<arith::CmpIOp>(
+                nestedLoc, arith::CmpIPredicate::slt, newValue, oldValue);
+          } else {
+            didEncounterError = true;
+            return;
+          }
+
+          auto resultMin = rewriter.create<arith::SelectOp>(
+              nestedLoc, predicate, newValue, oldValue);
+          auto resultIndex = rewriter.create<arith::SelectOp>(
+              nestedLoc, predicate, newIndex, oldIndex);
+          nestedBuilder.create<linalg::YieldOp>(
+              nestedLoc, ValueRange({resultIndex, resultMin}));
+        });
+
+    if (didEncounterError)
+      return rewriter.notifyMatchFailure(
+          argminOp, "unsupported nova.argmin element type");
+
+    rewriter.replaceOp(argminOp, linalgOp.getResult(0));
+    return success();
+  }
+};
 
 
 //generic pattern definition
@@ -525,6 +674,7 @@ struct NovaToLinalgLoweringPassTemplate
     target.addIllegalOp<nova::AtanhOp>();
     target.addIllegalOp<nova::CompareOp>();
     target.addIllegalOp<nova::SignOp>();
+    target.addIllegalOp<nova::ArgMinOp>();
     
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
@@ -582,7 +732,8 @@ void populateNovaToLinalgPatternsTemplate(RewritePatternSet &patterns) {
       NovaToLinalgElementwiseConverter<nova::AcoshOp>,
       NovaToLinalgElementwiseConverter<nova::AtanhOp>,
       NovaToLinalgElementwiseConverter<nova::CompareOp>,
-      NovaToLinalgElementwiseConverter<nova::SignOp>
+      NovaToLinalgElementwiseConverter<nova::SignOp>,
+      ArgMinConverter
   >(patterns.getContext());
 }
 

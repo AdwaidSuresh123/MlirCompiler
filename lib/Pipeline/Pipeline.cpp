@@ -50,14 +50,15 @@ namespace nova {
 }} // namespace mlir::nova
 
 void mlir::nova::createNovaPipelines(OpPassManager &pm) {
-  pm.addPass(createCanonicalizerPass());
+  //pm.addPass(createCanonicalizerPass());
   
   // Lower Nova dialect to standard dialects 
 //pm.addNestedPass<func::FuncOp>(ceateNovaToLinalg());  
   pm.addPass(createNovaToLinalgLoweringPass());
   pm.addPass(createNovaToArithLoweringPass());
-  pm.addPass(createCanonicalizerPass());
+  //pm.addPass(createCanonicalizerPass());
   pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+
 
   //tosa to linalg 
 pm.addNestedPass<func::FuncOp>(mlir::tosa::createTosaToLinalg());  
@@ -89,7 +90,7 @@ pm.addPass(mlir::createTosaToTensorPass());
   
   // Convert SCF to CF (Control Flow)
   pm.addPass(mlir::createSCFToControlFlowPass());
-  pm.addPass(createCanonicalizerPass()); 
+  //pm.addPass(createCanonicalizerPass()); 
   
   //Lower to LLVM dialect
   pm.addPass(createConvertMathToLLVMPass());
@@ -103,7 +104,7 @@ pm.addPass(mlir::createTosaToTensorPass());
   pm.addPass(mlir::createReconcileUnrealizedCastsPass());
   
   // Final canonicalization
-  pm.addPass(createCanonicalizerPass());
+  //pm.addPass(createCanonicalizerPass());
 }
 
 void mlir::nova::registerNovaPipelines() {

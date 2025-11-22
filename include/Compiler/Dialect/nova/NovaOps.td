@@ -6,7 +6,13 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "NovaDialect.td"
 include "mlir/IR/EnumAttr.td"
-def Nova_ElementType : AnyTypeOf<[I1, I8, I16, I32, I64, F16, BF16, F32, F64]>;
+include "mlir/IR/BuiltinTypes.td" 
+
+
+def I4 : Type<CPred<"$_self.isInteger(4)">, "4-bit integer">,
+         BuildableType<"$_builder.getIntegerType(4)">;
+
+def Nova_ElementType : AnyTypeOf<[I1,I4, I8, I16, I32, I64, F16, BF16, F32, F64]>;
 def Nova_Tensor : TensorOf<[Nova_ElementType]>;
 
 //enum creation
@@ -51,7 +57,8 @@ def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface
   }];
 
 }
-//-------------------------------------------------------reduction operations---------------------------------------------------------------------------------------
+//---------------------------------------reduction operations---------------------------------------------------------------------------------------
+
 def Nova_ReductionKind : I32EnumAttr<"ReductionKind",
     "Reduction operation kind", [
   I32EnumAttrCase<"MAX", 0, "max">,
@@ -81,7 +88,7 @@ def Nova_ReduceOp : Op<Nova_Dialect,"reduce", [Pure,InferTypeOpInterface]> {
     %result = nova.reduce<sum> %input dimension = [0] : tensor<4x8xf32> -> tensor<8xf32>
     
     // Keep reduced dimensions with min
-    %result = nova.reduce<min> %input dimension = [1] keepdims = true : 
+    %result = nova.reduce<min> %input dimension = [1] keepdims = true ignore_nan=true :  
               tensor<4x8xf32> -> tensor<4x1xf32>
     
     // Product reduction
@@ -102,59 +109,38 @@ def Nova_ReduceOp : Op<Nova_Dialect,"reduce", [Pure,InferTypeOpInterface]> {
     Nova_ReductionKind:$kind,
     Nova_Tensor:$input,
     OptionalAttr<I64ArrayAttr>:$dimension,
-    DefaultValuedAttr<BoolAttr, "false">:$keepdims
+    DefaultValuedAttr<BoolAttr, "false">:$keepdims,
+    DefaultValuedAttr<BoolAttr, "false">:$ignore_nan
   );
+
     let results = (outs Nova_Tensor:$output);
   let builders = [
     OpBuilder<(ins "ReductionKind":$kind, "Value":$input, 
-                   "ArrayRef<int64_t>":$dimension, "bool":$keepdims, "Type":$resultType)>
+                   "ArrayRef<int64_t>":$dimension, "bool":$keepdims,"bool":$ignore_nan, "Type":$resultType)>
   ];
  let skipDefaultBuilders=1;
   let hasVerifier=1;
   let assemblyFormat = [{
-    `<` $kind `>` $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)?
-    attr-dict `:` type($input) 
-  }];
-}
-def Nova_ArgmaxOp:Op <Nova_Dialect,"argmax",[Pure,InferTypeOpInterface]>{
-    let arguments = (ins 
-    Nova_Tensor:$input,
-    OptionalAttr<I64Attr>:$dimension,
-    DefaultValuedAttr<BoolAttr, "false">:$keepdims
-  );
-      let results = (outs Nova_Tensor:$output);
- let skipDefaultBuilders=1;
-  let builders = [
-    OpBuilder<(ins "Value":$input, 
-                   "int64_t":$dimension, "bool":$keepdims, "Type":$resultType)>
-  ];
-        let extraClassDeclaration = [{
-    static ::mlir::LogicalResult inferReturnTypes(
-      ::mlir::MLIRContext *context,
-      std::optional<::mlir::Location> loc,
-      ::mlir::ValueRange operands,
-      ::mlir::DictionaryAttr attributes,
-      ::mlir::OpaqueProperties properties,
-      ::mlir::RegionRange regions,
-      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
-  }];
-    let assemblyFormat = [{
-     $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)?
+  `<` $kind `>` $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)? (`ignore_nan` `=`$ignore_nan^)?
     attr-dict `:` type($input) 
   }];
 }
 
-def Nova_ArgminOp:Op <Nova_Dialect,"argmin",[Pure,InferTypeOpInterface]>{
+//---------------------------ARGMAX-------------------------------
+
+def Nova_ArgmaxOp:Op <Nova_Dialect,"argmax",[Pure,InferTypeOpInterface]>{
     let arguments = (ins 
     Nova_Tensor:$input,
     OptionalAttr<I64Attr>:$dimension,
-    DefaultValuedAttr<BoolAttr, "false">:$keepdims
+    DefaultValuedAttr<BoolAttr, "false">:$keepdims,
+    DefaultValuedAttr<BoolAttr, "false">:$ignore_nan
+
   );
       let results = (outs Nova_Tensor:$output);
  let skipDefaultBuilders=1;
   let builders = [
     OpBuilder<(ins "Value":$input, 
-                   "int64_t":$dimension, "bool":$keepdims, "Type":$resultType)>
+                   "int64_t":$dimension, "bool":$keepdims,"bool":$ignore_nan, "Type":$resultType)>
   ];
         let extraClassDeclaration = [{
     static ::mlir::LogicalResult inferReturnTypes(
@@ -167,7 +153,38 @@ def Nova_ArgminOp:Op <Nova_Dialect,"argmin",[Pure,InferTypeOpInterface]>{
       ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
     let assemblyFormat = [{
-     $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)?
+     $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)?(`ignore_nan` `=` $ignore_nan^)?
+    attr-dict `:` type($input) 
+  }];
+}
+
+//------------------------------ARGMIN----------------------------------------
+
+def Nova_ArgMinOp:Op <Nova_Dialect,"argmin",[Pure,InferTypeOpInterface]>{
+    let arguments = (ins 
+    Nova_Tensor:$input,
+    OptionalAttr<I32Attr>:$dimension,
+    DefaultValuedAttr<BoolAttr, "false">:$keepdims,
+    DefaultValuedAttr<BoolAttr, "false">:$ignore_nan
+  ); 
+      let results = (outs Nova_Tensor:$output);
+ let skipDefaultBuilders=1;
+  let builders = [
+    OpBuilder<(ins "Value":$input, 
+                   "int32_t":$dimension, "bool":$keepdims, "bool":$ignore_nan, "Type":$resultType)>
+  ];
+        let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
+    let assemblyFormat = [{
+     $input (`dimension` `=` $dimension^)? (`keepdims` `=` $keepdims^)? (`ignore_nan` `=` $ignore_nan^)?
     attr-dict `:` type($input) 
   }];
 }
