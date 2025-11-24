@@ -15,7 +15,7 @@ def I4 : Type<CPred<"$_self.isInteger(4)">, "4-bit integer">,
 def Nova_ElementType : AnyTypeOf<[I1,I4, I8, I16, I32, I64, F16, BF16, F32, F64]>;
 def Nova_Tensor : TensorOf<[Nova_ElementType]>;
 
-//enum creation
+//enum div
 def Nova_Comparisonenum:I32EnumAttr<"ComparisonType","How operands should be compared",[
   I32EnumAttrCase<"EQ",0,"eq">,
   I32EnumAttrCase<"NEQ",1,"neq">,
@@ -340,7 +340,7 @@ def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultT
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
-    let extraClassDeclaration = [{
+  let extraClassDeclaration = [{
     static ::mlir::LogicalResult inferReturnTypes(
       ::mlir::MLIRContext *context,
       std::optional<::mlir::Location> loc,
@@ -669,7 +669,7 @@ class Nova_BinaryOp<string mnemonic, list<Trait> commonTraits = []>:
   Op<Nova_Dialect, mnemonic,
      commonTraits # [Pure,
                      InferTypeOpInterface,
-                     SameOperandsAndResultElementType]> {
+                     ]> {
 
   let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
   let results = (outs Nova_Tensor:$result);

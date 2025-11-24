@@ -14,12 +14,155 @@ using namespace mlir::nova;
 #include "Compiler/Dialect/nova/NovaOps.cpp.inc"
 
 // Helper Functions
+//🫟
+//type promotion for result type -heirarchy based
+
+static LogicalResult BinaryTypePromotionReturnType( MLIRContext *context, std::optional  <Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes){
+  //1..finding shape
+  mlir::Builder builder(context);
+  auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
+  auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(), 
+                                                rhstensor.getShape());
+  if (!broadcastedShape) {
+    if (loc) {
+      mlir::emitError(*loc) 
+        << "incompatible shapes for broadcasting - "
+        << lhstensor << " and " << rhstensor;
+    }
+    return failure();
+  }
+  //2.fiding dtype
+  Type lhselemtype=lhstensor.getElementType();
+  Type rhselemType=rhstensor.getElementType();
+  unsigned resultbitwidth=0;
+  auto flhstype =dyn_cast<mlir::FloatType>(lhselemtype);
+  auto frhstype =dyn_cast<mlir::FloatType>(rhselemType);
+  auto ilhstype =dyn_cast<mlir::IntegerType>(lhselemtype);
+  auto irhstype =dyn_cast<mlir::IntegerType>(rhselemType);
+ //if both float, get higher bitwidth 
+  if(flhstype && frhstype ){
+    unsigned lhsbitwidth=flhstype.getWidth();
+    unsigned rhsbitwidth=frhstype.getWidth();
+    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  }
+  //if lhs float and rhs is int get lhs bitwidth
+  else if(flhstype && irhstype){
+    unsigned lhsbitwidth=flhstype.getWidth();
+    resultbitwidth=lhsbitwidth;
+  }
+  //if rhs float and lhs is int get rhs bitwidth
+  else if(ilhstype && frhstype){
+    unsigned rhsbitwidth=frhstype.getWidth();
+    resultbitwidth=rhsbitwidth;
+  }
+  //if both integer get higher bitwidth and push bac the result int type 
+  else{
+    unsigned lhsbitwidth=ilhstype.getWidth();
+    unsigned rhsbitwidth=irhstype.getWidth();
+    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+    auto resultType=builder.getI8Type();
+    switch(resultbitwidth){
+    case 64:
+    resultType = builder.getI64Type();
+    break;
+    case 32:
+    resultType = builder.getI32Type();
+    break;
+    case 16:
+    resultType=builder.getI16Type();
+    }
+    inferredReturnTypes.push_back(
+    RankedTensorType::get(*broadcastedShape, resultType));
+    return success() ;
+  }
+  auto resulType=builder.getF16Type();
+  switch(resultbitwidth){
+    case 64:
+    resulType = builder.getF64Type();
+    break;
+    case 32:
+    resulType = builder.getF32Type();
+  }
+  inferredReturnTypes.push_back(
+    RankedTensorType::get(*broadcastedShape, resulType));
+    return success() ; 
+}
+
+ 
+//float promotion for result type
+static LogicalResult BinaryFloatPromotionReturnType( MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes){
+  mlir::Builder builder(context);
+  auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
+  auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+  Type lhselemtype=lhstensor.getElementType();
+  Type rhselemType=rhstensor.getElementType();
+  unsigned resultbitwidth=0;
+  //1.finding dtype
+  auto flhstype =dyn_cast<mlir::FloatType>(lhselemtype);
+  auto frhstype =dyn_cast<mlir::FloatType>(rhselemType);
+  auto ilhstype =dyn_cast<mlir::IntegerType>(lhselemtype);
+  auto irhstype =dyn_cast<mlir::IntegerType>(rhselemType);
+  //if both float, get higher bitwidth 
+  if(flhstype && frhstype ){
+    unsigned lhsbitwidth=flhstype.getWidth();
+    unsigned rhsbitwidth=frhstype.getWidth();
+    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  }
+  //if lhs float and rhs is int get lhs bitwidth
+  else if(flhstype && irhstype){
+    unsigned lhsbitwidth=flhstype.getWidth();
+    unsigned rhsbitwidth=irhstype.getWidth();
+    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  }
+  //if rhs float and lhs is int get rhs bitwidth
+  else if(ilhstype && frhstype){
+    unsigned rhsbitwidth=frhstype.getWidth();
+    unsigned lhsbitwidth=ilhstype.getWidth();
+    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  }
+  //if both integer get higher bitwidth
+  else if(ilhstype && irhstype){
+    unsigned lhsbitwidth=ilhstype.getWidth();
+    unsigned rhsbitwidth=irhstype.getWidth();
+    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  }
+  auto resultType=builder.getF16Type();
+  switch(resultbitwidth){
+    case 64:
+    resultType = builder.getF64Type();
+    break;
+    case 32:
+    resultType = builder.getF32Type();
+  }  
+  //2.finding shape
+  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(), 
+                                                rhstensor.getShape());
+  if (!broadcastedShape) {
+    if (loc) {
+      mlir::emitError(*loc) 
+        << "incompatible shapes for broadcasting - "
+        << lhstensor << " and " << rhstensor;
+    }
+    return failure();
+  }
+  
+  inferredReturnTypes.push_back(
+    RankedTensorType::get(*broadcastedShape, resultType));
+ 
+return success();
+}
+//🫟
 //infer return type for unary operations
-static LogicalResult castingInferReturnTypes(
+static LogicalResult unarycastingInferReturnTypes(
       MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes
-){
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes){
+
   mlir::Builder builder(context);
   auto opType = llvm::dyn_cast<TensorType>(operands[0].getType());
   //get the element type
@@ -27,14 +170,17 @@ static LogicalResult castingInferReturnTypes(
   Type resultType=inputElementType;
   if (auto type = dyn_cast<mlir::IntegerType>(inputElementType)) {//returns true if int or else null
     unsigned bitwidth = type.getWidth();
-    if (bitwidth == 64) {//if i64 then f64 or else for every other f32.
+    if (bitwidth == 64) { //if i64 then f64 or else for every other f32.
       resultType = builder.getF64Type();
-    } else {
+    } 
+    else if(bitwidth==32){
       resultType = builder.getF32Type();
-    }  
+    } 
+    else {
+      resultType=builder.getF16Type();
+    } 
 }       
-  auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
-  Type returnTensorType = RankedTensorType::get(lhsType.getShape(),resultType);
+  Type returnTensorType = RankedTensorType::get(opType.getShape(),resultType);
   inferredReturnTypes.push_back(returnTensorType);
   return success();
 }
@@ -73,13 +219,13 @@ static LogicalResult inferBinaryElementwiseReturnTypes(
 
   Type elementType = lhsType.getElementType();
   
-  if (elementType != rhsType.getElementType()) {
-    if (loc) {
-      mlir::emitError(*loc) << OpType::getOperationName() 
-                            << " operands must have the same element type";
-    }
-    return failure();
-  }
+  // if (elementType != rhsType.getElementType()) {
+  //   if (loc) {
+  //     mlir::emitError(*loc) << OpType::getOperationName() 
+  //                           << " operands must have the same element type";
+  //   }
+  //   return failure();
+  // }
   
   if (!lhsType.hasRank() || !rhsType.hasRank()) {
     inferredReturnTypes.push_back(UnrankedTensorType::get(elementType));
@@ -117,29 +263,26 @@ static LogicalResult verifyBinaryOp(OpType op) {
     return op.emitOpError("operands and result must be tensor types");
   }
   
-  auto lhsElementType = cast<TensorType>(lhsType).getElementType();
-  auto rhsElementType = cast<TensorType>(rhsType).getElementType();
-  auto resultElementType = cast<TensorType>(resultType).getElementType();
+  // auto lhsElementType = cast<TensorType>(lhsType).getElementType();
+  // auto rhsElementType = cast<TensorType>(rhsType).getElementType();
+  // auto resultElementType = cast<TensorType>(resultType).getElementType();
   
-  if (lhsElementType != rhsElementType || lhsElementType != resultElementType) {
-    return op.emitOpError("operands and result must have the same element type");
-  }
+  // if (lhsElementType != rhsElementType || lhsElementType != resultElementType) {
+  //   return op.emitOpError("operands and result must have the same element type");
+  // }
   
   return success();
 }
 
-
 // BroadcastInDimOp
 
-
 LogicalResult BroadcastInDimOp::verify() {
+
   auto operandType = dyn_cast<RankedTensorType>(getOperand().getType());
   auto resultType = dyn_cast<RankedTensorType>(getResult().getType());
-  
   if (!operandType || !resultType) {
     return success();
   }
-  
   auto broadcastDims = getBroadcastDimensions();
 
   if (static_cast<int64_t>(broadcastDims.size()) != operandType.getRank()) {
@@ -191,7 +334,7 @@ LogicalResult AddOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<AddOp>(
+  return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
@@ -205,7 +348,7 @@ LogicalResult SubOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<SubOp>(
+  return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
@@ -219,7 +362,7 @@ LogicalResult MulOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<MulOp>(
+  return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
@@ -233,7 +376,7 @@ LogicalResult DivOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<DivOp>(
+  return BinaryFloatPromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
@@ -247,7 +390,7 @@ LogicalResult ModOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<ModOp>(
+  return BinaryFloatPromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
@@ -261,7 +404,7 @@ LogicalResult PowOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<PowOp>(
+  return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
@@ -859,14 +1002,13 @@ LogicalResult ReduceOp::verify() {
   return success();
 }
 
-//----------------
-//------------------------casting infer return types---------------------------------
+//------------------------unary casting infer return types---------------------------------
 #define INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Op)                \
   LogicalResult Op::inferReturnTypes(                                 \
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,\
     DictionaryAttr attributes, OpaqueProperties properties,\
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {  \
-    return castingInferReturnTypes(                                   \
+    return unarycastingInferReturnTypes(                                   \
         context, loc, operands, attributes, properties, regions, \
         inferredReturnTypes);                                        \
   }

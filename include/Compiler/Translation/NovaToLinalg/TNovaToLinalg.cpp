@@ -25,8 +25,29 @@ inline bool isScalar(Value v) {
 inline SmallVector<utils::IteratorType> getNParallelLoopsAttrs(unsigned n) {
   return SmallVector<utils::IteratorType>(n, utils::IteratorType::parallel);
 }
+//-----------------------------------------------
+// For getting Type builder
+//-----------------------------------------------
 using namespace mlir;
+static mlir::IntegerType getinttype(int bw, OpBuilder* builder){
+  switch(bw){
+    case 64:
+    return builder->getI64Type();
+    case 32:
+    return builder ->getI32Type();
+  }
+  return nullptr;
+}
 
+static mlir::FloatType getfloattype(int bw, OpBuilder* builder){
+  switch(bw){
+    case 64:
+    return builder->getF64Type();
+    case 32:
+    return builder ->getF32Type();
+  }
+  return nullptr;
+}
 static std::optional<arith::CmpIPredicate>
 getArithCmpiPredicate(nova::ComparisonType type) {
   switch (type) {
@@ -139,18 +160,182 @@ private:
   }
   //div operation
   static Value mapOpImpl(nova::DivOp op,Type resultType,ArrayRef<Value> args,OpBuilder* builder){
+    //1..fiding dtype
+    auto flhstype =dyn_cast<mlir::FloatType>(args[0].getType());
+    auto frhstype =dyn_cast<mlir::FloatType>(args[1].getType());
+    auto ilhstype =dyn_cast<mlir::IntegerType>(args[0].getType());
+    auto irhstype =dyn_cast<mlir::IntegerType>(args[1].getType());
+    Value v;
+    // checking if lhs and rhs are same
+    if(isa<FloatType>(args[0].getType()) && isa<FloatType>(args[1].getType())){
+      //check both bitwidth
+      auto lhsbw=flhstype.getWidth();
+      auto rhsbw=frhstype.getWidth();
+      //selecting bigger one
+      if(lhsbw==rhsbw)
+        return builder->create<arith::DivFOp>(op.getLoc(),args[0],args[1]);
+      else if(lhsbw>rhsbw){
+        v=builder->create<arith::ExtFOp>(op.getLoc(),getfloattype(lhsbw,builder),args[1]);
+        return builder->create<arith::DivFOp>(op.getLoc(),args[0],v);
+      }
+      else{
+        v=builder->create<arith::ExtFOp>(op.getLoc(),getfloattype(rhsbw,builder),args[0]);
+        return builder->create<arith::DivFOp>(op.getLoc(),v,args[1]);
+      }
+    }
+    else if(isa<IntegerType>(args[0].getType()) && isa<FloatType>(args[1].getType())){
 
-    if(isa<FloatType>(resultType))
-    return builder->create<arith::DivFOp>(op.getLoc(),args[0],args[1]);
-    if(isa<IntegerType>(resultType))
-    return builder->create<arith::DivUIOp>(op.getLoc(),args[0],args[1]);
+        auto lhsbw=ilhstype.getWidth();
+        auto rhsbw=frhstype.getWidth();
+        if (lhsbw == rhsbw){
+          v=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),args[0]);
+          return builder->create<arith::DivFOp>(op.getLoc(),v,args[1]);
+        }
+        else if(lhsbw>rhsbw){
+          v=builder->create<arith::ExtFOp>(op.getLoc(),getfloattype(lhsbw,builder),args[1]);
+          auto lhs=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),args[0]);
+          return builder->create<arith::DivFOp>(op.getLoc(),lhs,v);
+        }
+        else {
+          v=builder->create<arith::ExtSIOp>(op.getLoc(),getinttype(rhsbw,builder),args[0]);
+          auto lhs=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),v);
+          return builder->create<arith::DivFOp>(op.getLoc(),lhs,args[1]);
+        }
+     }
+     //lhs if float and rhs is int
+    else if(isa<FloatType>(args[0].getType()) && isa<IntegerType>(args[1].getType())){
+        auto lhsbw=flhstype.getWidth();
+        auto rhsbw=irhstype.getWidth();
+        if (lhsbw == rhsbw){
+          v=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),args[1]);
+          return builder->create<arith::DivFOp>(op.getLoc(),args[0],v);
+        }
+        else if(lhsbw>rhsbw){
+          v=builder->create<arith::ExtSIOp>(op.getLoc(),getinttype(lhsbw,builder),args[1]);
+          auto rhs=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),v);
+          return builder->create<arith::DivFOp>(op.getLoc(),args[0],rhs);
+        }
+        else {
+          v=builder->create<arith::ExtFOp>(op.getLoc(),getfloattype(rhsbw,builder),args[0]);
+          auto rhs=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),args[1]);
+          return builder->create<arith::DivFOp>(op.getLoc(),v,rhs);
+        }  
+     }
+     
+    else if(isa<IntegerType>(args[0].getType()) && isa<IntegerType>(args[1].getType())){
+      auto lhsbw=ilhstype.getWidth();
+      auto rhsbw=irhstype.getWidth();
+      if (lhsbw == rhsbw){
+        v=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),args[0]);
+       auto w=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),args[1]);
+        return builder->create<arith::DivFOp>(op.getLoc(),v,w);
+      }
+      
+      else if (lhsbw > rhsbw){
+        v = builder-> create<arith::ExtSIOp>(op.getLoc(),getinttype(lhsbw,builder),args[1]);
+        auto r=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),args[0]);
+        auto w=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),v);
+        return builder->create<arith::DivFOp>(op.getLoc(),r,w);
+        }
+      
+      else{
+        v=builder-> create<arith::ExtSIOp>(op.getLoc(),getinttype(rhsbw,builder),args[0]);
+        auto r=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),v);
+        auto w=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),args[1]);
+        return builder->create<arith::DivFOp>(op.getLoc(),r,w);
+      }
+      }
+    
     return nullptr;
   }
+
   //mod operation
   //only float type
   static Value mapOpImpl(nova::ModOp op,Type resultType,ArrayRef<Value> args,OpBuilder* builder){
-    if(isa<FloatType>(resultType))
-    return builder->create<arith::RemFOp>(op.getLoc(),args[0],args[1]);
+    if(isa<FloatType>(resultType)){
+      auto flhstype =dyn_cast<mlir::FloatType>(args[0].getType());
+      auto frhstype =dyn_cast<mlir::FloatType>(args[1].getType());
+      auto ilhstype =dyn_cast<mlir::IntegerType>(args[0].getType());
+      auto irhstype =dyn_cast<mlir::IntegerType>(args[1].getType());
+      Value v;
+      if(isa<FloatType>(args[0].getType()) && isa<FloatType>(args[1].getType())){
+        //check both bitwidth
+        auto lhsbw=flhstype.getWidth();
+        auto rhsbw=frhstype.getWidth();
+        //selecting bigger one
+        if(lhsbw==rhsbw)
+            return builder->create<arith::RemFOp>(op.getLoc(),args[0],args[1]);
+        else if(lhsbw>rhsbw){
+          v=builder->create<arith::ExtFOp>(op.getLoc(),getfloattype(lhsbw,builder),args[1]);
+          return builder->create<arith::RemFOp>(op.getLoc(),args[0],v);
+        }
+        else{
+          v=builder->create<arith::ExtFOp>(op.getLoc(),getfloattype(rhsbw,builder),args[0]);
+          return builder->create<arith::RemFOp>(op.getLoc(),v,args[1]);
+        }
+      }
+      else if(isa<IntegerType>(args[0].getType()) && isa<FloatType>(args[1].getType())){
+
+        auto lhsbw=ilhstype.getWidth();
+        auto rhsbw=frhstype.getWidth();
+        if (lhsbw == rhsbw){
+          v=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),args[0]);
+          return builder->create<arith::RemFOp>(op.getLoc(),v,args[1]);
+        }
+        else if(lhsbw>rhsbw){
+          v=builder->create<arith::ExtFOp>(op.getLoc(),getfloattype(lhsbw,builder),args[1]);
+          auto lhs=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),args[0]);
+          return builder->create<arith::RemFOp>(op.getLoc(),lhs,v);
+        }
+        else {
+          v=builder->create<arith::ExtSIOp>(op.getLoc(),getinttype(rhsbw,builder),args[0]);
+          auto lhs=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),v);
+          return builder->create<arith::RemFOp>(op.getLoc(),lhs,args[1]);
+        }
+      }
+      else if(isa<FloatType>(args[0].getType()) && isa<IntegerType>(args[1].getType())){
+        auto lhsbw=flhstype.getWidth();
+        auto rhsbw=irhstype.getWidth();
+        if (lhsbw == rhsbw){
+          v=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),args[1]);
+          return builder->create<arith::RemFOp>(op.getLoc(),args[0],v);
+        }
+        else if(lhsbw>rhsbw){
+          v=builder->create<arith::ExtSIOp>(op.getLoc(),getinttype(lhsbw,builder),args[1]);
+          auto rhs=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),v);
+          return builder->create<arith::RemFOp>(op.getLoc(),args[0],rhs);
+        }
+        else {
+          v=builder->create<arith::ExtFOp>(op.getLoc(),getfloattype(rhsbw,builder),args[0]);
+          auto rhs=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),args[1]);
+          return builder->create<arith::RemFOp>(op.getLoc(),v,rhs);
+        }  
+     }
+     
+    else if(isa<IntegerType>(args[0].getType()) && isa<IntegerType>(args[1].getType())){
+      auto lhsbw=ilhstype.getWidth();
+      auto rhsbw=irhstype.getWidth();
+      if (lhsbw == rhsbw){
+        v=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),args[0]);
+       auto w=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),args[1]);
+        return builder->create<arith::RemFOp>(op.getLoc(),v,w);
+      }
+      
+      else if (lhsbw > rhsbw){
+        v = builder-> create<arith::ExtSIOp>(op.getLoc(),getinttype(lhsbw,builder),args[1]);
+        auto r=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),args[0]);
+        auto w=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(lhsbw,builder),v);
+        return builder->create<arith::RemFOp>(op.getLoc(),r,w);
+        }
+      
+      else{
+        v=builder-> create<arith::ExtSIOp>(op.getLoc(),getinttype(rhsbw,builder),args[0]);
+        auto r=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),v);
+        auto w=builder ->create<arith::BitcastOp>(op.getLoc(),getfloattype(rhsbw,builder),args[1]);
+        return builder->create<arith::RemFOp>(op.getLoc(),r,w);
+      }
+      }
+    }
     return nullptr;
   }
   //and operation
@@ -206,6 +391,7 @@ private:
      builder->create<arith::SIToFPOp>(op.getLoc(),builder->getF32Type(),args[0]));
    return nullptr;
     }
+//----------------------------------------------------------------    
 //log2 operaton
   static Value mapOpImpl(nova::Log2Op op, Type resultType, ArrayRef<Value> args,
                          OpBuilder* builder) {

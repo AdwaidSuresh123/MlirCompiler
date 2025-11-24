@@ -8,6 +8,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Casting.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 
 #include "Compiler/Translation/NovaToTosa/NovaToTosa.h"
@@ -98,9 +100,64 @@ static Value mappincasereduce(nova::ReduceOp op,Type temresult,Value v,mlir::Int
     return builder->create<tosa::ReduceProductOp>(op.getLoc(),temresult,v,axisAttr);
     case nova::ReductionKind::SUM:
     return builder->create<tosa::ReduceSumOp>(op.getLoc(),temresult,v,axisAttr);
-    // case nova::ReductionKind::MEAN:
-    // // mean is not there ok
-    // // return nullptr;
+
+
+    case nova::ReductionKind::MEAN: {
+      auto sum = builder->create<tosa::ReduceSumOp>(op.getLoc(), temresult, v, axisAttr);
+      int64_t axis = axisAttr.getInt();
+      auto inputType = cast<RankedTensorType>(v.getType());
+      int64_t dimSize = inputType.getDimSize(axis);
+      
+      Value divisor;
+      auto elementType = inputType.getElementType();
+      
+      if (inputType.isDynamicDim(axis)) {
+         Value dimVal = builder->create<tensor::DimOp>(op.getLoc(), v, axis);
+         if (isa<FloatType>(elementType)) {
+            divisor = builder->create<mlir::arith::IndexCastOp>(op.getLoc(), builder->getI64Type(), dimVal);
+            divisor = builder->create<mlir::arith::UIToFPOp>(op.getLoc(), elementType, divisor);
+         } else {
+            divisor = builder->create<mlir::arith::IndexCastOp>(op.getLoc(), elementType, dimVal);
+         }
+      } else {
+         if (isa<FloatType>(elementType)) {
+            divisor = builder->create<tosa::ConstOp>(op.getLoc(), 
+               RankedTensorType::get({}, elementType),
+               DenseElementsAttr::get(RankedTensorType::get({}, elementType), 
+                  builder->getFloatAttr(elementType, static_cast<double>(dimSize))));
+         } else {
+            divisor = builder->create<tosa::ConstOp>(op.getLoc(), 
+               RankedTensorType::get({}, elementType),
+               DenseElementsAttr::get(RankedTensorType::get({}, elementType), 
+                  builder->getIntegerAttr(elementType, dimSize)));
+         }
+      }
+
+      // Reshape divisor to match rank of sum for broadcasting
+      auto resultType = cast<RankedTensorType>(temresult);
+      int64_t rank = resultType.getRank();
+      SmallVector<int64_t> newShape(rank, 1);
+      
+      auto shapeType = RankedTensorType::get({rank}, builder->getIndexType());
+      auto shapeAttr = DenseIntElementsAttr::get(shapeType, newShape);
+      auto shapeConst = builder->create<tosa::ConstShapeOp>(op.getLoc(), 
+                                                            mlir::tosa::shapeType::get(builder->getContext(), rank), 
+                                                            shapeAttr);
+      
+      auto reshapedDivisorType = RankedTensorType::get(newShape, elementType);
+      auto reshapedDivisor = builder->create<tosa::ReshapeOp>(op.getLoc(), reshapedDivisorType, divisor, shapeConst);
+
+      if (isa<FloatType>(elementType)) {
+         auto reciprocal = builder->create<tosa::ReciprocalOp>(op.getLoc(), reshapedDivisorType, reshapedDivisor);
+         auto shift = builder->create<tosa::ConstOp>(op.getLoc(),
+                                                     RankedTensorType::get({1}, builder->getI8Type()),
+                                                     DenseElementsAttr::get(RankedTensorType::get({1}, builder->getI8Type()),
+                                                                            builder->getI8IntegerAttr(0)));
+         return builder->create<tosa::MulOp>(op.getLoc(), temresult, sum, reciprocal, shift);
+      } else {
+         return builder->create<tosa::IntDivOp>(op.getLoc(), temresult, sum, reshapedDivisor);
+      }
+    }
     case nova::ReductionKind::ALL:
     return builder->create<tosa::ReduceAllOp>(op.getLoc(),temresult,v,axisAttr);
     case nova::ReductionKind::ANY:
@@ -273,7 +330,7 @@ mlir::tosa::NanPropagationModeAttr nanmode;
 nanmode = mlir::tosa::NanPropagationModeAttr::get(op->getContext(), mlir::tosa::NanPropagationMode::PROPAGATE);
 
   if (ignorenanAttr) {
-nanmode = mlir::tosa::NanPropagationModeAttr::get(op->getContext(), mlir::tosa::NanPropagationMode::IGNORE);//i changed it to accept true or false
+nanmode = mlir::tosa::NanPropagationModeAttr::get(op->getContext(), mlir::tosa::NanPropagationMode::IGNORE);
     }
 
    //🪻👍🏻🪻
