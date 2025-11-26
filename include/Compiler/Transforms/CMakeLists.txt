@@ -32,3 +32,10 @@ target_include_directories(AffineFullUnroll PRIVATE
   ${PROJECT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_BINARY_DIR}
 )
+
+# Install generated header files
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/Passes.h.inc
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/Compiler/Transforms"
+)

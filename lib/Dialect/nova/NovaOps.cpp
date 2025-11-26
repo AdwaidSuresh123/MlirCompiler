@@ -514,6 +514,15 @@ LogicalResult XorOp::inferReturnTypes(
   inferredReturnTypes.push_back(resultType);
   return success();
 }
+//---------------------------------ConstantOp-----------------
+
+void ConstantOp::build(OpBuilder &builder, OperationState &state,
+                       Attribute value, Type resultType)
+{
+  state.addAttribute("value", value);
+  state.addTypes(resultType);
+}
+
 //---------------------------------comparison-----------------
 
 void CompareOp::build(OpBuilder &builder, OperationState &state,

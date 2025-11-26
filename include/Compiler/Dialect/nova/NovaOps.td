@@ -848,6 +848,19 @@ def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<I
 }
 
 /*
+def Nova_TransposeOp : Op<Nova_Dialect,"transpose",[Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let results = (outs Nova_Tensor:$result);
+  
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+  }];
+  
+  let hasVerifier = 1;
+}
+*/
+
+/*
 def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Convolution operation with padding and stride";
   let description = [{

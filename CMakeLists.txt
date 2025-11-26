@@ -32,7 +32,37 @@ link_directories(${LLVM_BUILD_LIBRARY_DIR})
 # Add definitions
 add_definitions(${LLVM_DEFINITIONS})
 
+set(MLIR_COMPILER_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+
 # Build subdirectories
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
+
+# --- Additions for Export/Installation ---
+
+# Load package helpers for configuring version files
+include(CMakePackageConfigHelpers)
+
+# 1. Generate configuration file for find_package()
+# This file tells consumers how to use your installed project.
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+)
+
+# 2. Generate version file for compatibility checking
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+    VERSION 1.0.0
+    COMPATIBILITY AnyNewerVersion
+)
+
+# 3. Install the generated config and version files
+install(
+    FILES 
+        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+)

@@ -9,3 +9,13 @@ mlir_tablegen(NovaOpsAttributes.h.inc -gen-attrdef-decls)
 mlir_tablegen(NovaOpsAttributes.cpp.inc -gen-attrdef-defs)
 add_public_tablegen_target(MLIRNovaOpsIncGen)
 add_dependencies(mlir-headers MLIRNovaOpsIncGen)
+
+# Install generated header files
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/NovaOps.h.inc
+        ${CMAKE_CURRENT_BINARY_DIR}/NovaOpsDialect.h.inc
+        ${CMAKE_CURRENT_BINARY_DIR}/NovaOpsEnums.h.inc
+        ${CMAKE_CURRENT_BINARY_DIR}/NovaOpsAttributes.h.inc
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/Compiler/Dialect/nova"
+)
