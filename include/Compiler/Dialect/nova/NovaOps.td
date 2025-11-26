@@ -815,7 +815,7 @@ def Nova_XorOp : Nova_BinaryOp<"xor", [Commutative]> {
   }];
 }
 
-def Nova_NotOp : Nova_UnaryOp<"not", [Commutative,SameOperandsAndResultType]> {
+def Nova_NotOp : Nova_UnaryOp<"not", [Commutative,InferTypeOpInterface]> {
   let summary = "Elementwise logical XOR";
   let description = [{
     Performs element-wise logical NOT operation on tensors.
@@ -823,6 +823,16 @@ def Nova_NotOp : Nova_UnaryOp<"not", [Commutative,SameOperandsAndResultType]> {
   
     Example:
       %r = nova.not %a tensor<3xi1> -> tensor<2x3xi1>
+  }];
+   let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
 }
 

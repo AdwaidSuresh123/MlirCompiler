@@ -4,7 +4,7 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
-#include "llvm/ADT/SmallSet.h" 
+#include "llvm/ADT/SmallSet.h"
 using namespace mlir;
 using namespace mlir::nova;
 
@@ -14,306 +14,337 @@ using namespace mlir::nova;
 #include "Compiler/Dialect/nova/NovaOps.cpp.inc"
 
 // Helper Functions
-//🫟
-//type promotion for result type -heirarchy based
 
-static LogicalResult BinaryTypePromotionReturnType( MLIRContext *context, std::optional  <Location> loc, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes){
-  //1..finding shape
+// type promotion for result type -heirarchy based
+
+static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+                                                   DictionaryAttr attributes, OpaqueProperties properties,
+                                                   RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  // 1..finding shape
   mlir::Builder builder(context);
   auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
   auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
-  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(), 
+  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(),
                                                 rhstensor.getShape());
-  if (!broadcastedShape) {
-    if (loc) {
-      mlir::emitError(*loc) 
-        << "incompatible shapes for broadcasting - "
-        << lhstensor << " and " << rhstensor;
+  if (!broadcastedShape)
+  {
+    if (loc)
+    {
+      mlir::emitError(*loc)
+          << "incompatible shapes for broadcasting - "
+          << lhstensor << " and " << rhstensor;
     }
     return failure();
   }
-  //2.fiding dtype
-  Type lhselemtype=lhstensor.getElementType();
-  Type rhselemType=rhstensor.getElementType();
-  unsigned resultbitwidth=0;
-  auto flhstype =dyn_cast<mlir::FloatType>(lhselemtype);
-  auto frhstype =dyn_cast<mlir::FloatType>(rhselemType);
-  auto ilhstype =dyn_cast<mlir::IntegerType>(lhselemtype);
-  auto irhstype =dyn_cast<mlir::IntegerType>(rhselemType);
- //if both float, get higher bitwidth 
-  if(flhstype && frhstype ){
-    unsigned lhsbitwidth=flhstype.getWidth();
-    unsigned rhsbitwidth=frhstype.getWidth();
-    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  // 2.fiding dtype
+  Type lhselemtype = lhstensor.getElementType();
+  Type rhselemType = rhstensor.getElementType();
+  unsigned resultbitwidth = 0;
+  auto flhstype = dyn_cast<mlir::FloatType>(lhselemtype);
+  auto frhstype = dyn_cast<mlir::FloatType>(rhselemType);
+  auto ilhstype = dyn_cast<mlir::IntegerType>(lhselemtype);
+  auto irhstype = dyn_cast<mlir::IntegerType>(rhselemType);
+  // if both float, get higher bitwidth
+  if (flhstype && frhstype)
+  {
+    unsigned lhsbitwidth = flhstype.getWidth();
+    unsigned rhsbitwidth = frhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
-  //if lhs float and rhs is int get lhs bitwidth
-  else if(flhstype && irhstype){
-    unsigned lhsbitwidth=flhstype.getWidth();
-    resultbitwidth=lhsbitwidth;
+  // if lhs float and rhs is int get lhs bitwidth
+  else if (flhstype && irhstype)
+  {
+    unsigned lhsbitwidth = flhstype.getWidth();
+    unsigned rhsbitwidth = irhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
-  //if rhs float and lhs is int get rhs bitwidth
-  else if(ilhstype && frhstype){
-    unsigned rhsbitwidth=frhstype.getWidth();
-    resultbitwidth=rhsbitwidth;
+  // if rhs float and lhs is int get rhs bitwidth
+  else if (ilhstype && frhstype)
+  {
+    unsigned lhsbitwidth = ilhstype.getWidth();
+    unsigned rhsbitwidth = frhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
-  //if both integer get higher bitwidth and push bac the result int type 
-  else{
-    unsigned lhsbitwidth=ilhstype.getWidth();
-    unsigned rhsbitwidth=irhstype.getWidth();
-    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
-    auto resultType=builder.getI8Type();
-    switch(resultbitwidth){
+  // if both integer get higher bitwidth and push back the result int type
+  else
+  {
+    unsigned lhsbitwidth = ilhstype.getWidth();
+    unsigned rhsbitwidth = irhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+    auto resultType = builder.getI8Type();
+    switch (resultbitwidth)
+    {
     case 64:
-    resultType = builder.getI64Type();
-    break;
+      resultType = builder.getI64Type();
+      break;
     case 32:
-    resultType = builder.getI32Type();
-    break;
+      resultType = builder.getI32Type();
+      break;
     case 16:
-    resultType=builder.getI16Type();
+      resultType = builder.getI16Type();
     }
     inferredReturnTypes.push_back(
-    RankedTensorType::get(*broadcastedShape, resultType));
-    return success() ;
+        RankedTensorType::get(*broadcastedShape, resultType));
+    return success();
   }
-  auto resulType=builder.getF16Type();
-  switch(resultbitwidth){
-    case 64:
+  auto resulType = builder.getF16Type();
+  switch (resultbitwidth)
+  {
+  case 64:
     resulType = builder.getF64Type();
     break;
-    case 32:
+  case 32:
     resulType = builder.getF32Type();
   }
   inferredReturnTypes.push_back(
-    RankedTensorType::get(*broadcastedShape, resulType));
-    return success() ; 
+      RankedTensorType::get(*broadcastedShape, resulType));
+  return success();
 }
 
- 
-//float promotion for result type
-static LogicalResult BinaryFloatPromotionReturnType( MLIRContext *context, std::optional<Location> loc, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes){
+// float promotion for result type
+static LogicalResult BinaryFloatPromotionReturnType(MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+                                                    DictionaryAttr attributes, OpaqueProperties properties,
+                                                    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
   mlir::Builder builder(context);
   auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
   auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
-  Type lhselemtype=lhstensor.getElementType();
-  Type rhselemType=rhstensor.getElementType();
-  unsigned resultbitwidth=0;
-  //1.finding dtype
-  auto flhstype =dyn_cast<mlir::FloatType>(lhselemtype);
-  auto frhstype =dyn_cast<mlir::FloatType>(rhselemType);
-  auto ilhstype =dyn_cast<mlir::IntegerType>(lhselemtype);
-  auto irhstype =dyn_cast<mlir::IntegerType>(rhselemType);
-  //if both float, get higher bitwidth 
-  if(flhstype && frhstype ){
-    unsigned lhsbitwidth=flhstype.getWidth();
-    unsigned rhsbitwidth=frhstype.getWidth();
-    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  Type lhselemtype = lhstensor.getElementType();
+  Type rhselemType = rhstensor.getElementType();
+  unsigned resultbitwidth = 0;
+  // 1.finding dtype
+  auto flhstype = dyn_cast<mlir::FloatType>(lhselemtype);
+  auto frhstype = dyn_cast<mlir::FloatType>(rhselemType);
+  auto ilhstype = dyn_cast<mlir::IntegerType>(lhselemtype);
+  auto irhstype = dyn_cast<mlir::IntegerType>(rhselemType);
+  // if both float, get higher bitwidth
+  if (flhstype && frhstype)
+  {
+    unsigned lhsbitwidth = flhstype.getWidth();
+    unsigned rhsbitwidth = frhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
-  //if lhs float and rhs is int get lhs bitwidth
-  else if(flhstype && irhstype){
-    unsigned lhsbitwidth=flhstype.getWidth();
-    unsigned rhsbitwidth=irhstype.getWidth();
-    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  // if lhs float and rhs is int get lhs bitwidth
+  else if (flhstype && irhstype)
+  {
+    unsigned lhsbitwidth = flhstype.getWidth();
+    unsigned rhsbitwidth = irhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
-  //if rhs float and lhs is int get rhs bitwidth
-  else if(ilhstype && frhstype){
-    unsigned rhsbitwidth=frhstype.getWidth();
-    unsigned lhsbitwidth=ilhstype.getWidth();
-    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  // if rhs float and lhs is int get rhs bitwidth
+  else if (ilhstype && frhstype)
+  {
+    unsigned rhsbitwidth = frhstype.getWidth();
+    unsigned lhsbitwidth = ilhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
-  //if both integer get higher bitwidth
-  else if(ilhstype && irhstype){
-    unsigned lhsbitwidth=ilhstype.getWidth();
-    unsigned rhsbitwidth=irhstype.getWidth();
-    resultbitwidth=lhsbitwidth>rhsbitwidth?lhsbitwidth:rhsbitwidth;
+  // if both integer get higher bitwidth
+  else if (ilhstype && irhstype)
+  {
+    unsigned lhsbitwidth = ilhstype.getWidth();
+    unsigned rhsbitwidth = irhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
-  auto resultType=builder.getF16Type();
-  switch(resultbitwidth){
-    case 64:
+  auto resultType = builder.getF16Type();
+  switch (resultbitwidth)
+  {
+  case 64:
     resultType = builder.getF64Type();
     break;
-    case 32:
+  case 32:
     resultType = builder.getF32Type();
-  }  
-  //2.finding shape
-  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(), 
+  }
+  // 2.finding shape
+  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(),
                                                 rhstensor.getShape());
-  if (!broadcastedShape) {
-    if (loc) {
-      mlir::emitError(*loc) 
-        << "incompatible shapes for broadcasting - "
-        << lhstensor << " and " << rhstensor;
+  if (!broadcastedShape)
+  {
+    if (loc)
+    {
+      mlir::emitError(*loc)
+          << "incompatible shapes for broadcasting - "
+          << lhstensor << " and " << rhstensor;
     }
     return failure();
   }
-  
+
   inferredReturnTypes.push_back(
-    RankedTensorType::get(*broadcastedShape, resultType));
- 
-return success();
+      RankedTensorType::get(*broadcastedShape, resultType));
+
+  return success();
 }
-//🫟
-//infer return type for unary operations
+// 🫟
+// infer return type for unary operations
 static LogicalResult unarycastingInferReturnTypes(
-      MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes){
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
 
   mlir::Builder builder(context);
   auto opType = llvm::dyn_cast<TensorType>(operands[0].getType());
-  //get the element type
+  // get the element type
   Type inputElementType = opType.getElementType();
-  Type resultType=inputElementType;
-  if (auto type = dyn_cast<mlir::IntegerType>(inputElementType)) {//returns true if int or else null
+  Type resultType = inputElementType;
+  if (auto type = dyn_cast<mlir::IntegerType>(inputElementType))
+  { // returns true if int or else null
     unsigned bitwidth = type.getWidth();
-    if (bitwidth == 64) { //if i64 then f64 or else for every other f32.
+    if (bitwidth == 64)
+    { // if i64 then f64 or else for every other f32.
       resultType = builder.getF64Type();
-    } 
-    else if(bitwidth==32){
+    }
+    else if (bitwidth == 32)
+    {
       resultType = builder.getF32Type();
-    } 
-    else {
-      resultType=builder.getF16Type();
-    } 
-}       
-  Type returnTensorType = RankedTensorType::get(opType.getShape(),resultType);
+    }
+    else
+    {
+      resultType = builder.getF16Type();
+    }
+  }
+  Type returnTensorType = RankedTensorType::get(opType.getShape(), resultType);
   inferredReturnTypes.push_back(returnTensorType);
   return success();
 }
 
-
-
 /// Shared implementation for binary elementwise type inference with broadcasting
-template<typename OpType>
-static LogicalResult inferBinaryElementwiseReturnTypes(
-    MLIRContext *context,
-    std::optional<Location> loc,
-    ValueRange operands,
-    DictionaryAttr attributes,
-    OpaqueProperties properties,
-    RegionRange regions,
-    llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+// template<typename OpType>
+// static LogicalResult inferBinaryElementwiseReturnTypes(
+//     MLIRContext *context,
+//     std::optional<Location> loc,
+//     ValueRange operands,
+//     DictionaryAttr attributes,
+//     OpaqueProperties properties,
+//     RegionRange regions,
+//     llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
 
-  if (operands.size() != 2) {
-    if (loc) {
-      mlir::emitError(*loc) << OpType::getOperationName() 
-                            << " requires exactly 2 operands";
-    }
-    return failure();
-  }
-  
-  auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
-  auto rhsType = llvm::dyn_cast<TensorType>(operands[1].getType());
-  
-  if (!lhsType || !rhsType) {
-    if (loc) {
-      mlir::emitError(*loc) << OpType::getOperationName() 
-                            << " operands must be tensor types";
-    }
-    return failure();
-  }
+//   if (operands.size() != 2) {
+//     if (loc) {
+//       mlir::emitError(*loc) << OpType::getOperationName()
+//                             << " requires exactly 2 operands";
+//     }
+//     return failure();
+//   }
 
-  Type elementType = lhsType.getElementType();
-  
-  // if (elementType != rhsType.getElementType()) {
-  //   if (loc) {
-  //     mlir::emitError(*loc) << OpType::getOperationName() 
-  //                           << " operands must have the same element type";
-  //   }
-  //   return failure();
-  // }
-  
-  if (!lhsType.hasRank() || !rhsType.hasRank()) {
-    inferredReturnTypes.push_back(UnrankedTensorType::get(elementType));
-    return success();
-  }
-  
-  auto broadcastedShape = computeBroadcastShape(lhsType.getShape(), 
-                                                rhsType.getShape());
-  
-  if (!broadcastedShape) {
-    if (loc) {
-      mlir::emitError(*loc) 
-        << OpType::getOperationName() 
-        << ": incompatible shapes for broadcasting - "
-        << lhsType << " and " << rhsType;
-    }
-    return failure();
-  }
-  
-  inferredReturnTypes.push_back(
-    RankedTensorType::get(*broadcastedShape, elementType));
-  
-  return success();
-}
+//   auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
+//   auto rhsType = llvm::dyn_cast<TensorType>(operands[1].getType());
+
+//   if (!lhsType || !rhsType) {
+//     if (loc) {
+//       mlir::emitError(*loc) << OpType::getOperationName()
+//                             << " operands must be tensor types";
+//     }
+//     return failure();
+//   }
+
+//   Type elementType = lhsType.getElementType();
+
+//   // if (elementType != rhsType.getElementType()) {
+//   //   if (loc) {
+//   //     mlir::emitError(*loc) << OpType::getOperationName()
+//   //                           << " operands must have the same element type";
+//   //   }
+//   //   return failure();
+//   // }
+
+//   if (!lhsType.hasRank() || !rhsType.hasRank()) {
+//     inferredReturnTypes.push_back(UnrankedTensorType::get(elementType));
+//     return success();
+//   }
+
+//   auto broadcastedShape = computeBroadcastShape(lhsType.getShape(),
+//                                                 rhsType.getShape());
+
+//   if (!broadcastedShape) {
+//     if (loc) {
+//       mlir::emitError(*loc)
+//         << OpType::getOperationName()
+//         << ": incompatible shapes for broadcasting - "
+//         << lhsType << " and " << rhsType;
+//     }
+//     return failure();
+//   }
+
+//   inferredReturnTypes.push_back(
+//     RankedTensorType::get(*broadcastedShape, elementType));
+
+//   return success();
+// }
 
 /// Generic verify for all binary ops
-template<typename OpType>
-static LogicalResult verifyBinaryOp(OpType op) {
+template <typename OpType>
+static LogicalResult verifyBinaryOp(OpType op)
+{
   auto lhsType = op.getLhs().getType();
   auto rhsType = op.getRhs().getType();
   auto resultType = op.getResult().getType();
-  
-  if (!isa<TensorType>(lhsType) || !isa<TensorType>(rhsType) || 
-      !isa<TensorType>(resultType)) {
+
+  if (!isa<TensorType>(lhsType) || !isa<TensorType>(rhsType) ||
+      !isa<TensorType>(resultType))
+  {
     return op.emitOpError("operands and result must be tensor types");
   }
-  
+
   // auto lhsElementType = cast<TensorType>(lhsType).getElementType();
   // auto rhsElementType = cast<TensorType>(rhsType).getElementType();
   // auto resultElementType = cast<TensorType>(resultType).getElementType();
-  
+
   // if (lhsElementType != rhsElementType || lhsElementType != resultElementType) {
   //   return op.emitOpError("operands and result must have the same element type");
   // }
-  
+
   return success();
 }
 
 // BroadcastInDimOp
 
-LogicalResult BroadcastInDimOp::verify() {
+LogicalResult BroadcastInDimOp::verify()
+{
 
   auto operandType = dyn_cast<RankedTensorType>(getOperand().getType());
   auto resultType = dyn_cast<RankedTensorType>(getResult().getType());
-  if (!operandType || !resultType) {
+  if (!operandType || !resultType)
+  {
     return success();
   }
   auto broadcastDims = getBroadcastDimensions();
 
-  if (static_cast<int64_t>(broadcastDims.size()) != operandType.getRank()) {
+  if (static_cast<int64_t>(broadcastDims.size()) != operandType.getRank())
+  {
     return emitOpError("broadcast_dimensions size (")
            << broadcastDims.size() << ") must match operand rank ("
            << operandType.getRank() << ")";
   }
 
   llvm::SmallVector<bool> seenDims(resultType.getRank(), false);
-  
-  for (auto [idx, dimAttr] : llvm::enumerate(broadcastDims)) {
+
+  for (auto [idx, dimAttr] : llvm::enumerate(broadcastDims))
+  {
     int64_t dim = cast<IntegerAttr>(dimAttr).getInt();
-    
-    if (dim < 0 || dim >= resultType.getRank()) {
-      return emitOpError("broadcast dimension ") << dim 
-             << " out of range [0, " << resultType.getRank() << ")";
+
+    if (dim < 0 || dim >= resultType.getRank())
+    {
+      return emitOpError("broadcast dimension ") << dim
+                                                 << " out of range [0, " << resultType.getRank() << ")";
     }
-    
-    if (seenDims[dim]) {
-      return emitOpError("broadcast dimension ") << dim 
-             << " is used more than once";
+
+    if (seenDims[dim])
+    {
+      return emitOpError("broadcast dimension ") << dim
+                                                 << " is used more than once";
     }
     seenDims[dim] = true;
-    
+
     int64_t operandDim = operandType.getDimSize(idx);
     int64_t resultDim = resultType.getDimSize(dim);
-    
-    if (!ShapedType::isDynamic(operandDim) && 
-        !ShapedType::isDynamic(resultDim)) {
-      if (operandDim != 1 && operandDim != resultDim) {
-        return emitOpError() << "operand dimension " << idx 
+
+    if (!ShapedType::isDynamic(operandDim) &&
+        !ShapedType::isDynamic(resultDim))
+    {
+      if (operandDim != 1 && operandDim != resultDim)
+      {
+        return emitOpError() << "operand dimension " << idx
                              << " (size " << operandDim << ") "
                              << "incompatible with result dimension " << dim
                              << " (size " << resultDim << ")";
@@ -324,179 +355,188 @@ LogicalResult BroadcastInDimOp::verify() {
   return success();
 }
 
-
 // AddOp
-
 
 LogicalResult AddOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult AddOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
   return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-
 // SubOp
-
 
 LogicalResult SubOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult SubOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
   return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-
 // MulOp
-
 
 LogicalResult MulOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult MulOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
   return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-
 // DivOp
-
 
 LogicalResult DivOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult DivOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
   return BinaryFloatPromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-
 // ModOp
-
 
 LogicalResult ModOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult ModOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
   return BinaryFloatPromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-
 // PowOp
-
 
 LogicalResult PowOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult PowOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
   return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-
 // MaxOp
-
 
 LogicalResult MaxOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult MaxOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<MaxOp>(
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-
 // MinOp
-
 
 LogicalResult MinOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult MinOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<MinOp>(
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  return BinaryTypePromotionReturnType(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
-
 // AndOp
-
 
 LogicalResult AndOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult AndOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<AndOp>(
-      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
+  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  inferredReturnTypes.push_back(resultType);
+  return success();
 }
 
+LogicalResult NotOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
+  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  inferredReturnTypes.push_back(resultType);
+  return success();
+}
 
 // OrOp
-
 
 LogicalResult OrOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult OrOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<OrOp>(
-      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
+  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  inferredReturnTypes.push_back(resultType);
+  return success();
 }
 
-
 // XorOp
-
 
 LogicalResult XorOp::verify() { return verifyBinaryOp(*this); }
 
 LogicalResult XorOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
-  return inferBinaryElementwiseReturnTypes<XorOp>(
-      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
+  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  inferredReturnTypes.push_back(resultType);
+  return success();
 }
 //---------------------------------comparison-----------------
 
 void CompareOp::build(OpBuilder &builder, OperationState &state,
-                      Value lhs, Value rhs, ComparisonType kind) {
+                      Value lhs, Value rhs, ComparisonType kind)
+{
   state.addOperands({lhs, rhs});
-  state.addAttribute("kind", 
+  state.addAttribute("kind",
                      builder.getI32IntegerAttr(static_cast<int32_t>(kind)));
   Type resultType = RankedTensorType::get({}, builder.getI1Type());
   state.addTypes(resultType);
 }
-LogicalResult CompareOp::verify() { 
+LogicalResult CompareOp::verify()
+{
   auto lhsType = getLhs().getType();
   auto rhsType = getRhs().getType();
-  
+
   // Verify that input shapes match
-  if (lhsType.getShape() != rhsType.getShape()) {
+  if (lhsType.getShape() != rhsType.getShape())
+  {
     return emitOpError("operand shapes must match for comparison");
   }
 
-  return  success();
+  return success();
 }
 LogicalResult SignOp::inferReturnTypes(
     MLIRContext *context,
@@ -505,34 +545,41 @@ LogicalResult SignOp::inferReturnTypes(
     DictionaryAttr attributes,
     OpaqueProperties properties,
     RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  
-  if (operands.size() != 1) {
-    if (location) {
+    SmallVectorImpl<Type> &inferredReturnTypes)
+{
+
+  if (operands.size() != 1)
+  {
+    if (location)
+    {
       mlir::emitError(*location) << "sign requires exactly 1 operands";
     }
     return failure();
   }
 
   // The result type of sign is always int8
-  //the shape is tensor of shape same as inputs
+  // the shape is tensor of shape same as inputs
   auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
   Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 8));
   inferredReturnTypes.push_back(resultType);
   return success();
 }
 void ArgmaxOp::build(OpBuilder &builder, OperationState &state,
-                  Value input, int64_t dimension,
-                     bool keepdims,bool ignore_nan, Type resultType) {
-  state.addOperands(input);  
-  if (!dimension) {
-state.addAttribute("dimension", builder.getIntegerAttr(builder.getI64Type(), dimension));
+                     Value input, int64_t dimension,
+                     bool keepdims, bool ignore_nan, Type resultType)
+{
+  state.addOperands(input);
+  if (!dimension)
+  {
+    state.addAttribute("dimension", builder.getIntegerAttr(builder.getI64Type(), dimension));
   }
-  
-  if (keepdims) {
+
+  if (keepdims)
+  {
     state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
   }
-    if (ignore_nan) {
+  if (ignore_nan)
+  {
     state.addAttribute("ignore_nan", builder.getBoolAttr(ignore_nan));
   }
   state.addTypes(resultType);
@@ -544,76 +591,96 @@ LogicalResult ArgmaxOp::inferReturnTypes(
     DictionaryAttr attributes,
     OpaqueProperties properties,
     RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  
+    SmallVectorImpl<Type> &inferredReturnTypes)
+{
+
   auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
-  if (!inputType) return failure();
-  
+  if (!inputType)
+    return failure();
+
   auto inputShape = inputType.getShape();
   size_t inputRank = inputShape.size();
-  
 
   bool keepDims = false;
-  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims"))) {
+  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims")))
+  {
     keepDims = keepDimsAttr.getValue();
   }
-  
-  auto dimAttr = dyn_cast_or_null<IntegerAttr>(attributes.get("dimension"));
-  
-  llvm::SmallDenseSet<int64_t, 4> dimsToReduce;
-  
-  if (dimAttr) {
-      int64_t axis = dimAttr.getValue().getSExtValue(); 
-      if (axis < 0) {
-        axis += inputRank;
-      }
-      if (axis >= 0 && static_cast<size_t>(axis) < inputRank) {
-        dimsToReduce.insert(axis);
-      } else {
-        if (location.has_value()) {
-          return mlir::emitError(*location,"reduction axis is out of bounds");
-        }
-        return failure();
-      }
 
-  } else {
+  auto dimAttr = dyn_cast_or_null<IntegerAttr>(attributes.get("dimension"));
+
+  llvm::SmallDenseSet<int64_t, 4> dimsToReduce;
+
+  if (dimAttr)
+  {
+    int64_t axis = dimAttr.getValue().getSExtValue();
+    if (axis < 0)
+    {
+      axis += inputRank;
+    }
+    if (axis >= 0 && static_cast<size_t>(axis) < inputRank)
+    {
+      dimsToReduce.insert(axis);
+    }
+    else
+    {
+      if (location.has_value())
+      {
+        return mlir::emitError(*location, "reduction axis is out of bounds");
+      }
+      return failure();
+    }
+  }
+  else
+  {
     // No dimensions specified - reduce all dimensions
-    for (size_t i = 0; i < inputRank; ++i) {
+    for (size_t i = 0; i < inputRank; ++i)
+    {
       dimsToReduce.insert(i);
     }
   }
-  
+
   llvm::SmallVector<int64_t, 4> resultShape;
-  for (size_t i = 0; i < inputRank; ++i) {
-    if (dimsToReduce.count(i)) {
-      if (keepDims) {
+  for (size_t i = 0; i < inputRank; ++i)
+  {
+    if (dimsToReduce.count(i))
+    {
+      if (keepDims)
+      {
         resultShape.push_back(1);
       }
-    } else {
+    }
+    else
+    {
       resultShape.push_back(inputShape[i]);
     }
   }
-  
-  if (resultShape.empty() && !keepDims) {
-    inferredReturnTypes.push_back(RankedTensorType::get({},  IntegerType::get(context, 32)));
-  } else {
-    inferredReturnTypes.push_back(RankedTensorType::get(resultShape,  IntegerType::get(context, 32)));
-  }
-  
-  return success();
 
+  if (resultShape.empty() && !keepDims)
+  {
+    inferredReturnTypes.push_back(RankedTensorType::get({}, IntegerType::get(context, 32)));
+  }
+  else
+  {
+    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, IntegerType::get(context, 32)));
+  }
+
+  return success();
 }
 void ArgMinOp::build(OpBuilder &builder, OperationState &state,
-                  Value input, int32_t dimension,
-                     bool keepdims,bool ignore_nan ,Type resultType) {
-  state.addOperands(input);  
+                     Value input, int32_t dimension,
+                     bool keepdims, bool ignore_nan, Type resultType)
+{
+  state.addOperands(input);
 
-state.addAttribute("dimension", builder.getIntegerAttr(builder.getI32Type(), dimension));
+  state.addAttribute("dimension", builder.getIntegerAttr(builder.getI32Type(), dimension));
 
-  if (keepdims) {
+  if (keepdims)
+  {
     state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
   }
-    if (ignore_nan) {
+  if (ignore_nan)
+  {
     state.addAttribute("ignore_nan", builder.getBoolAttr(ignore_nan));
   }
   state.addTypes(resultType);
@@ -625,63 +692,81 @@ LogicalResult ArgMinOp::inferReturnTypes(
     DictionaryAttr attributes,
     OpaqueProperties properties,
     RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  
+    SmallVectorImpl<Type> &inferredReturnTypes)
+{
+
   auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
-  if (!inputType) return failure();
-  
+  if (!inputType)
+    return failure();
+
   auto inputShape = inputType.getShape();
   size_t inputRank = inputShape.size();
-  
 
   bool keepDims = false;
-  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims"))) {
+  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims")))
+  {
     keepDims = keepDimsAttr.getValue();
   }
-  
+
   auto dimAttr = dyn_cast_or_null<IntegerAttr>(attributes.get("dimension"));
-  
+
   llvm::SmallDenseSet<int64_t, 4> dimsToReduce;
-  
-  if (dimAttr) {
-      int64_t axis = dimAttr.getValue().getSExtValue(); 
-      if (axis < 0) {
-        axis += inputRank;
+
+  if (dimAttr)
+  {
+    int64_t axis = dimAttr.getValue().getSExtValue();
+    if (axis < 0)
+    {
+      axis += inputRank;
+    }
+    if (axis >= 0 && static_cast<size_t>(axis) < inputRank)
+    {
+      dimsToReduce.insert(axis);
+    }
+    else
+    {
+      if (location.has_value())
+      {
+        return mlir::emitError(*location, "reduction axis is out of bounds");
       }
-      if (axis >= 0 && static_cast<size_t>(axis) < inputRank) {
-        dimsToReduce.insert(axis);
-      } else {
-        if (location.has_value()) {
-          return mlir::emitError(*location,"reduction axis is out of bounds");
-        }
-        return failure();
-      }
-  } else {
+      return failure();
+    }
+  }
+  else
+  {
     // No dimensions specified - reduce all dimensions
-    for (size_t i = 0; i < inputRank; ++i) {
+    for (size_t i = 0; i < inputRank; ++i)
+    {
       dimsToReduce.insert(i);
     }
   }
-  
+
   llvm::SmallVector<int64_t, 4> resultShape;
-  for (size_t i = 0; i < inputRank; ++i) {
-    if (dimsToReduce.count(i)) {
-      if (keepDims) {
+  for (size_t i = 0; i < inputRank; ++i)
+  {
+    if (dimsToReduce.count(i))
+    {
+      if (keepDims)
+      {
         resultShape.push_back(1);
       }
-    } else {
+    }
+    else
+    {
       resultShape.push_back(inputShape[i]);
     }
   }
-  
-  if (resultShape.empty() && !keepDims) {
-    inferredReturnTypes.push_back(RankedTensorType::get({},  IntegerType::get(context, 32)));
-  } else {
-    inferredReturnTypes.push_back(RankedTensorType::get(resultShape,  IntegerType::get(context, 32)));
-  }
-  
-  return success();
 
+  if (resultShape.empty() && !keepDims)
+  {
+    inferredReturnTypes.push_back(RankedTensorType::get({}, IntegerType::get(context, 32)));
+  }
+  else
+  {
+    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, IntegerType::get(context, 32)));
+  }
+
+  return success();
 }
 LogicalResult CompareOp::inferReturnTypes(
     MLIRContext *context,
@@ -690,24 +775,26 @@ LogicalResult CompareOp::inferReturnTypes(
     DictionaryAttr attributes,
     OpaqueProperties properties,
     RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  
-  if (operands.size() != 2) {
-    if (location) {
+    SmallVectorImpl<Type> &inferredReturnTypes)
+{
+
+  if (operands.size() != 2)
+  {
+    if (location)
+    {
       mlir::emitError(*location) << "compare requires exactly 2 operands";
     }
     return failure();
   }
 
   // The result type of comparison is always a tensor of i1
-  //the shape is tensor of shape same as inputs
+  // the shape is tensor of shape same as inputs
   auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
   Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
   inferredReturnTypes.push_back(resultType);
   return success();
 }
 // MatmulOp
-
 
 LogicalResult MatmulOp::verify() { return verifyBinaryOp(*this); }
 
@@ -719,10 +806,13 @@ LogicalResult MatmulOp::inferReturnTypes(
     DictionaryAttr attributes,
     OpaqueProperties properties,
     RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  
-  if (operands.size() != 2) {
-    if (location) {
+    SmallVectorImpl<Type> &inferredReturnTypes)
+{
+
+  if (operands.size() != 2)
+  {
+    if (location)
+    {
       mlir::emitError(*location) << "matmul requires exactly 2 operands";
     }
     return failure();
@@ -730,32 +820,94 @@ LogicalResult MatmulOp::inferReturnTypes(
 
   auto lhsType = llvm::dyn_cast<TensorType>(operands[0].getType());
   auto rhsType = llvm::dyn_cast<TensorType>(operands[1].getType());
-  
-  if (!lhsType || !rhsType) {
-    if (location) {
+
+  if (!lhsType || !rhsType)
+  {
+    if (location)
+    {
       mlir::emitError(*location) << "matmul operands must be tensor types";
     }
     return failure();
   }
+  // function to find the result element type
+  mlir::Builder builder(context);
+  auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
+  auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(),
+                                                rhstensor.getShape());
 
-  Type elementType = lhsType.getElementType();
-  if (elementType != rhsType.getElementType()) {
-    if (location) {
-      mlir::emitError(*location) << "matmul operands must have the same element type";
-    }
-    return failure();
+  // 2.fiding dtype
+  Type lhselemtype = lhstensor.getElementType();
+  Type rhselemType = rhstensor.getElementType();
+  unsigned resultbitwidth = 0;
+  mlir::Type resultType = builder.getI8Type();
+  auto flhstype = dyn_cast<mlir::FloatType>(lhselemtype);
+  auto frhstype = dyn_cast<mlir::FloatType>(rhselemType);
+  auto ilhstype = dyn_cast<mlir::IntegerType>(lhselemtype);
+  auto irhstype = dyn_cast<mlir::IntegerType>(rhselemType);
+  // if both float, get higher bitwidth
+  if (flhstype && frhstype)
+  {
+    unsigned lhsbitwidth = flhstype.getWidth();
+    unsigned rhsbitwidth = frhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
+  // if lhs float and rhs is int get lhs bitwidth
+  else if (flhstype && irhstype)
+  {
+    unsigned lhsbitwidth = flhstype.getWidth();
+    unsigned rhsbitwidth = irhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+  }
+  // if rhs float and lhs is int get rhs bitwidth
+  else if (ilhstype && frhstype)
+  {
+    unsigned lhsbitwidth = ilhstype.getWidth();
+    unsigned rhsbitwidth = frhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+  }
+  // if both integer get higher bitwidth and push back the result int type
+  else
+  {
+    unsigned lhsbitwidth = ilhstype.getWidth();
+    unsigned rhsbitwidth = irhstype.getWidth();
+    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+    switch (resultbitwidth)
+    {
+    case 64:
+      resultType = builder.getI64Type();
+      break;
+    case 32:
+      resultType = builder.getI32Type();
+      break;
+    case 16:
+      resultType = builder.getI16Type();
+    }
+  }
+  resultType = builder.getF16Type();
+  switch (resultbitwidth)
+  {
+  case 64:
+    resultType = builder.getF64Type();
+    break;
+  case 32:
+    resultType = builder.getF32Type();
+  }
+  // end of finding element type
 
-  if (!lhsType.hasRank() || !rhsType.hasRank()) {
-    inferredReturnTypes.push_back(UnrankedTensorType::get(elementType));
+  if (!lhsType.hasRank() || !rhsType.hasRank())
+  {
+    inferredReturnTypes.push_back(UnrankedTensorType::get(resultType));
     return success();
   }
 
   ArrayRef<int64_t> lhsShape = lhsType.getShape();
   ArrayRef<int64_t> rhsShape = rhsType.getShape();
 
-  if (lhsShape.size() < 1 || rhsShape.size() < 1) {
-    if (location) {
+  if (lhsShape.size() < 1 || rhsShape.size() < 1)
+  {
+    if (location)
+    {
       mlir::emitError(*location) << "matmul operands must have at least rank 1";
     }
     return failure();
@@ -764,17 +916,20 @@ LogicalResult MatmulOp::inferReturnTypes(
   SmallVector<int64_t, 4> resultShape;
 
   // 1D x 1D: dot product -> scalar
-  if (lhsShape.size() == 1 && rhsShape.size() == 1) {
-    if (lhsShape[0] != rhsShape[0] && 
-        lhsShape[0] != ShapedType::kDynamic && 
-        rhsShape[0] != ShapedType::kDynamic) {
-      if (location) {
+  if (lhsShape.size() == 1 && rhsShape.size() == 1)
+  {
+    if (lhsShape[0] != rhsShape[0] &&
+        lhsShape[0] != ShapedType::kDynamic &&
+        rhsShape[0] != ShapedType::kDynamic)
+    {
+      if (location)
+      {
         mlir::emitError(*location) << "matmul: incompatible dimensions: "
-                                    << lhsShape[0] << " vs " << rhsShape[0];
+                                   << lhsShape[0] << " vs " << rhsShape[0];
       }
       return failure();
     }
-    inferredReturnTypes.push_back(RankedTensorType::get({}, elementType));
+    inferredReturnTypes.push_back(RankedTensorType::get({}, resultType));
     return success();
   }
 
@@ -782,10 +937,12 @@ LogicalResult MatmulOp::inferReturnTypes(
   int64_t lhsK = lhsShape[lhsShape.size() - 1];
   int64_t rhsK = (rhsShape.size() == 1) ? rhsShape[0] : rhsShape[rhsShape.size() - 2];
 
-  if (lhsK != rhsK && 
-      lhsK != ShapedType::kDynamic && 
-      rhsK != ShapedType::kDynamic) {
-    if (location) {
+  if (lhsK != rhsK &&
+      lhsK != ShapedType::kDynamic &&
+      rhsK != ShapedType::kDynamic)
+  {
+    if (location)
+    {
       mlir::emitError(*location) << "matmul: incompatible dimensions: " << lhsK << " vs " << rhsK;
     }
     return failure();
@@ -795,52 +952,61 @@ LogicalResult MatmulOp::inferReturnTypes(
   size_t lhsBatchRank = lhsShape.size() > 2 ? lhsShape.size() - 2 : 0;
   size_t rhsBatchRank = rhsShape.size() > 2 ? rhsShape.size() - 2 : 0;
   size_t maxBatchRank = std::max(lhsBatchRank, rhsBatchRank);
-  
-  for (size_t i = 0; i < maxBatchRank; ++i) {
+
+  for (size_t i = 0; i < maxBatchRank; ++i)
+  {
     int64_t lhsDim = (i < lhsBatchRank) ? lhsShape[lhsBatchRank - 1 - i] : 1;
     int64_t rhsDim = (i < rhsBatchRank) ? rhsShape[rhsBatchRank - 1 - i] : 1;
-    
+
     if (lhsDim == rhsDim || lhsDim == 1 || rhsDim == 1 ||
-        lhsDim == ShapedType::kDynamic || rhsDim == ShapedType::kDynamic) {
+        lhsDim == ShapedType::kDynamic || rhsDim == ShapedType::kDynamic)
+    {
       resultShape.insert(resultShape.begin(), (lhsDim == 1) ? rhsDim : lhsDim);
-    } else {
-      if (location) {
+    }
+    else
+    {
+      if (location)
+      {
         mlir::emitError(*location) << "matmul: incompatible batch dimensions";
       }
       return failure();
     }
   }
 
-  if (lhsShape.size() >= 2) {
+  if (lhsShape.size() >= 2)
+  {
     resultShape.push_back(lhsShape[lhsShape.size() - 2]);
   }
-  
-  if (rhsShape.size() >= 2) {
+
+  if (rhsShape.size() >= 2)
+  {
     resultShape.push_back(rhsShape[rhsShape.size() - 1]);
   }
 
-  inferredReturnTypes.push_back(RankedTensorType::get(resultShape, elementType));
+  inferredReturnTypes.push_back(RankedTensorType::get(resultShape, resultType));
   return success();
 }
 //---------------------------------reduce op----------------------------------------------------
 
-
-
 void ReduceOp::build(OpBuilder &builder, OperationState &state,
                      ReductionKind kind, Value input, ArrayRef<int64_t> dimension,
-                     bool keepdims,bool ignore_nan, Type resultType) {
+                     bool keepdims, bool ignore_nan, Type resultType)
+{
   state.addOperands(input);
   state.addAttribute("kind", builder.getI32IntegerAttr(static_cast<int32_t>(kind)));
-  
-  if (!dimension.empty()) {
+
+  if (!dimension.empty())
+  {
     state.addAttribute("dimension", builder.getI64ArrayAttr(dimension));
   }
-  
-  if (keepdims) {
+
+  if (keepdims)
+  {
     state.addAttribute("keepdims", builder.getBoolAttr(keepdims));
   }
-  if(ignore_nan){
-    state.addAttribute("ignore_nan",builder.getBoolAttr(ignore_nan));
+  if (ignore_nan)
+  {
+    state.addAttribute("ignore_nan", builder.getBoolAttr(ignore_nan));
   }
   state.addTypes(resultType);
 }
@@ -851,100 +1017,126 @@ LogicalResult ReduceOp::inferReturnTypes(
     DictionaryAttr attributes,
     OpaqueProperties properties,
     RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  
+    SmallVectorImpl<Type> &inferredReturnTypes)
+{
+
   auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
-  if (!inputType) return failure();
-  
+  if (!inputType)
+    return failure();
+
   auto inputShape = inputType.getShape();
   Type elementType = inputType.getElementType();
   size_t inputRank = inputShape.size();
-  
 
   bool keepDims = false;
-  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims"))) {
+  if (auto keepDimsAttr = dyn_cast_or_null<BoolAttr>(attributes.get("keepdims")))
+  {
     keepDims = keepDimsAttr.getValue();
   }
-  
+
   auto dimAttr = dyn_cast_or_null<ArrayAttr>(attributes.get("dimension"));
-  
+
   llvm::SmallDenseSet<int64_t, 4> dimsToReduce;
-  
-  if (dimAttr) {
-    for (auto axisAttr : dimAttr.getAsValueRange<IntegerAttr>()) {
+
+  if (dimAttr)
+  {
+    for (auto axisAttr : dimAttr.getAsValueRange<IntegerAttr>())
+    {
       int64_t axis = axisAttr.getSExtValue();
-      if (axis < 0) {
+      if (axis < 0)
+      {
         axis += inputRank;
       }
-      if (axis >= 0 && static_cast<size_t>(axis) < inputRank) {
+      if (axis >= 0 && static_cast<size_t>(axis) < inputRank)
+      {
         dimsToReduce.insert(axis);
-      } else {
-        if (location.has_value()) {
-          return mlir::emitError(*location,"reduction axis is out of bounds");
+      }
+      else
+      {
+        if (location.has_value())
+        {
+          return mlir::emitError(*location, "reduction axis is out of bounds");
         }
         return failure();
       }
     }
-  } else {
+  }
+  else
+  {
     // No dimensions specified - reduce all dimensions
-    for (size_t i = 0; i < inputRank; ++i) {
+    for (size_t i = 0; i < inputRank; ++i)
+    {
       dimsToReduce.insert(i);
     }
   }
-  
+
   llvm::SmallVector<int64_t, 4> resultShape;
-  for (size_t i = 0; i < inputRank; ++i) {
-    if (dimsToReduce.count(i)) {
-      if (keepDims) {
+  for (size_t i = 0; i < inputRank; ++i)
+  {
+    if (dimsToReduce.count(i))
+    {
+      if (keepDims)
+      {
         resultShape.push_back(1);
       }
-    } else {
+    }
+    else
+    {
       resultShape.push_back(inputShape[i]);
     }
   }
-  
-  if (resultShape.empty() && !keepDims) {
+
+  if (resultShape.empty() && !keepDims)
+  {
     inferredReturnTypes.push_back(RankedTensorType::get({}, elementType));
-  } else {
+  }
+  else
+  {
     inferredReturnTypes.push_back(RankedTensorType::get(resultShape, elementType));
   }
-  
+
   return success();
+}
 
-    }
-
-LogicalResult ReduceOp::verify() {
+LogicalResult ReduceOp::verify()
+{
   auto inputType = dyn_cast<RankedTensorType>(getInput().getType());
-  if (!inputType) {
+  if (!inputType)
+  {
     return emitOpError("input must be a ranked tensor");
   }
-    
+
   auto outputType = dyn_cast<RankedTensorType>(getOutput().getType());
-  if (!outputType) {
+  if (!outputType)
+  {
     return emitOpError("output must be a ranked tensor");
   }
-  
+
   int64_t inputRank = inputType.getRank();
-  
+
   // Verify Dimension are valid
-  if (auto dimensionAttr = getDimensionAttr()) {
+  if (auto dimensionAttr = getDimensionAttr())
+  {
     llvm::SmallVector<int64_t> DimensionVec;
-    for (auto dimension : dimensionAttr.getAsValueRange<IntegerAttr>()) {
+    for (auto dimension : dimensionAttr.getAsValueRange<IntegerAttr>())
+    {
       int64_t dimensionVal = dimension.getZExtValue();
-      if (dimensionVal < 0 || dimensionVal >= inputRank) {
-        return emitOpError("axis ") << dimensionVal << " is out of range [0, " 
-                                     << inputRank << ")";
+      if (dimensionVal < 0 || dimensionVal >= inputRank)
+      {
+        return emitOpError("axis ") << dimensionVal << " is out of range [0, "
+                                    << inputRank << ")";
       }
       DimensionVec.push_back(dimensionVal);
     }
-    
+
     // Check for duplicate Dimension
     llvm::SmallSet<int64_t, 4> uniqueDimension(DimensionVec.begin(), DimensionVec.end());
-    if (uniqueDimension.size() != DimensionVec.size()) {
+    if (uniqueDimension.size() != DimensionVec.size())
+    {
       return emitOpError("duplicate axis found in Dimension attribute");
     }
   }
-  
+
   // For argmax/argmin, output element type should be integer
   // auto kind = getKind();
   // if (kind == ReductionKind::ARGMAX || kind == ReductionKind::ARGMIN) {
@@ -953,66 +1145,80 @@ LogicalResult ReduceOp::verify() {
   //            << outputType.getElementType();
   //   }
   // } else {
-    // For other reductions, element types should match
+  // For other reductions, element types should match
   //   if (inputType.getElementType() != outputType.getElementType()) {
   //     return emitOpError("input and output element types must match for non-arg reductions, got input ")
-  //            << inputType.getElementType() << " and output " 
+  //            << inputType.getElementType() << " and output "
   //            << outputType.getElementType();
   //   }
   // }
-  
+
   // Verify output shape matches expected reduced shape
   llvm::SmallVector<int64_t> expectedShape;
-  if (auto dimensionAttr = getDimensionAttr()) {
+  if (auto dimensionAttr = getDimensionAttr())
+  {
     llvm::SmallSet<int64_t, 4> reduceDimension;
-    for (auto axis : dimensionAttr.getAsValueRange<IntegerAttr>()) {
+    for (auto axis : dimensionAttr.getAsValueRange<IntegerAttr>())
+    {
       reduceDimension.insert(axis.getZExtValue());
     }
-    
-    for (int64_t i = 0; i < inputRank; ++i) {
-      if (reduceDimension.contains(i)) {
-        if (getKeepdims()) {
+
+    for (int64_t i = 0; i < inputRank; ++i)
+    {
+      if (reduceDimension.contains(i))
+      {
+        if (getKeepdims())
+        {
           expectedShape.push_back(1);
         }
-      } else {
+      }
+      else
+      {
         expectedShape.push_back(inputType.getDimSize(i));
       }
     }
-  } else {
+  }
+  else
+  {
     // No Dimension specified - reduce all dimensions
-    if (getKeepdims()) {
+    if (getKeepdims())
+    {
       expectedShape.assign(inputRank, 1);
     }
     // else expectedShape is empty (scalar result)
   }
-  
+
   auto outputShape = outputType.getShape();
-  if (outputShape.size() != expectedShape.size()) {
+  if (outputShape.size() != expectedShape.size())
+  {
     return emitOpError("output rank does not match expected rank, expected ")
            << expectedShape.size() << " got " << outputShape.size();
   }
-  
-  for (size_t i = 0; i < expectedShape.size(); ++i) {
-    if (expectedShape[i] != outputShape[i] && expectedShape[i] != ShapedType::kDynamic) {
+
+  for (size_t i = 0; i < expectedShape.size(); ++i)
+  {
+    if (expectedShape[i] != outputShape[i] && expectedShape[i] != ShapedType::kDynamic)
+    {
       return emitOpError("output shape mismatch at dimension ") << i
-             << ", expected " << expectedShape[i] << " got " << outputShape[i];
+                                                                << ", expected " << expectedShape[i] << " got " << outputShape[i];
     }
   }
-  
+
   return success();
 }
 
 //------------------------unary casting infer return types---------------------------------
-#define INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Op)                \
-  LogicalResult Op::inferReturnTypes(                                 \
-    MLIRContext *context, std::optional<Location> loc, ValueRange operands,\
-    DictionaryAttr attributes, OpaqueProperties properties,\
-    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes) {  \
-    return unarycastingInferReturnTypes(                                   \
-        context, loc, operands, attributes, properties, regions, \
-        inferredReturnTypes);                                        \
+#define INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Op)                        \
+  LogicalResult Op::inferReturnTypes(                                         \
+      MLIRContext *context, std::optional<Location> loc, ValueRange operands, \
+      DictionaryAttr attributes, OpaqueProperties properties,                 \
+      RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)  \
+  {                                                                           \
+    return unarycastingInferReturnTypes(                                      \
+        context, loc, operands, attributes, properties, regions,              \
+        inferredReturnTypes);                                                 \
   }
-//exp operations
+// exp operations
 
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(ExpOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Exp2Op);

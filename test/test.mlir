@@ -1,6 +1,6 @@
 module {
-  func.func @main(%arg0: tensor<4x3x2xi64>, %arg1: tensor<4x3x2xf32>) -> tensor<4x3x2xf64> {
-    %a = nova.div %arg0, %arg1 : tensor<4x3x2xi64>, tensor<4x3x2xf32>
-    return %a : tensor<4x3x2xf64>
+  func.func @main(%arg0: tensor<3x3xi32>, %arg1: tensor<3x3xf64>) -> tensor<3x3xf64> {
+    %a = nova.max %arg0, %arg1: tensor<3x3xi32>, tensor<3x3xf64>
+    return %a : tensor<3x3xf64>
   }
 }
