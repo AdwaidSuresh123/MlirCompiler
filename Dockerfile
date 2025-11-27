@@ -26,7 +26,7 @@ RUN cmake -G Ninja ../llvm \
     -DCMAKE_BUILD_TYPE=Release \
     -DLLVM_ENABLE_ASSERTIONS=ON \
     -DCMAKE_INSTALL_PREFIX=/usr/local \
-    && ninja \
+    && ninja -j16\
     && ninja install
 
 # Stage 2: Build and Run mlir-compiler
@@ -58,7 +58,7 @@ RUN cmake -G Ninja .. \
     -DMLIR_DIR=/usr/local/lib/cmake/mlir \
     -DLLVM_DIR=/usr/local/lib/cmake/llvm \
     -DCMAKE_INSTALL_PREFIX=/opt/mlir-compiler \
-    && ninja \
+    && ninja -j16 \
     && ninja install
 
 # Set up environment variables for downstream usage
