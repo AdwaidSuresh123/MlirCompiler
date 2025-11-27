@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     lld \
     git \
     python3 \
+    ccache \
+    zlib1g-dev \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,12 +23,13 @@ RUN git clone --depth 1 https://github.com/llvm/llvm-project.git
 # Build LLVM/MLIR
 WORKDIR /tmp/llvm-project/build
 RUN cmake -G Ninja ../llvm \
-    -DLLVM_ENABLE_PROJECTS="mlir;clang" \
-    -DLLVM_TARGETS_TO_BUILD="X86" \
+    -DLLVM_ENABLE_PROJECTS="mlir" \
+    -DLLVM_TARGETS_TO_BUILD="Native;x86;NVPTX" \
     -DCMAKE_BUILD_TYPE=Release \
     -DLLVM_ENABLE_ASSERTIONS=ON \
+    -DLLVM_CCACHE_BUILD=ON \
     -DCMAKE_INSTALL_PREFIX=/usr/local \
-    && ninja \
+    && ninja -j12 \
     && ninja install
 
 # Stage 2: Build and Run mlir-compiler
@@ -58,7 +61,7 @@ RUN cmake -G Ninja .. \
     -DMLIR_DIR=/usr/local/lib/cmake/mlir \
     -DLLVM_DIR=/usr/local/lib/cmake/llvm \
     -DCMAKE_INSTALL_PREFIX=/opt/mlir-compiler \
-    && ninja \
+    && ninja -j12 \
     && ninja install
 
 # Set up environment variables for downstream usage

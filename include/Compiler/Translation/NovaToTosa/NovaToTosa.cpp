@@ -57,21 +57,6 @@ namespace mlir
         }
         return newshape;
       }
-      // converting two operand to boolean function
-
-      // collect the operand data type
-      // if float bitcast to equivalent int
-      //  use trunc to lower int from any bitwidth to i1.
-      // static  Value reducetobool(Location loc,Value rhs,Value rhs,OpBuilder* builder){
-      // auto lhstype=lhs.getType();
-      // auto rhstype=rhs.getType();
-      // //converting first operand
-      // if(isa<FloatType>(rhstype)){
-      //   auto rhsbw = frhstype.getWidth();
-
-      //   auto v = builder ->create<tosa::CastOp>(loc,builder->get)
-      // }
-      // converting second operand
 
       static int64_t shapeFindforargmax(Type currType)
       {
@@ -111,6 +96,7 @@ namespace mlir
         auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
         return builder->create<tosa::MinimumOp>(op.getLoc(), resultType, v, w);
       }
+
       static Value mappingtosa(nova::AndOp op, Type resultType, ValueRange input, OpBuilder *builder)
       {
         auto restensor = dyn_cast<mlir::TensorType>(resultType);
@@ -147,8 +133,13 @@ namespace mlir
       {
         auto restype = dyn_cast<mlir::TensorType>(resultType);
         auto v = builder->create<tosa::CastOp>(op.getLoc(), restype, input[0]);
-
         return builder->create<tosa::LogicalNotOp>(op.getLoc(), resultType, v);
+      }
+      static Value mappingtosa(nova::SigmoidOp op, Type resultType, ValueRange input, OpBuilder *builder)
+      {
+        auto restype = dyn_cast<mlir::TensorType>(resultType);
+        auto v = builder->create<tosa::CastOp>(op.getLoc(), restype, input[0]);
+        return builder->create<tosa::SigmoidOp>(op.getLoc(), resultType, v);
       }
       //-------------------------reduce op----------------------
       static Value mappincasereduce(nova::ReduceOp op, Type temresult, Value v, mlir::IntegerAttr axisAttr, OpBuilder *builder, mlir::tosa::NanPropagationModeAttr nanmode)
@@ -480,15 +471,64 @@ namespace mlir
         return v;
       }
     };
+    // pattern to convert nova.gelu to seauence of operations
+    /// gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+    struct NovaGeluOpLowering : public OpConversionPattern<GeluOp>
+    {
+      using OpConversionPattern<GeluOp>::OpConversionPattern;
+      LogicalResult matchAndRewrite(GeluOp op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override
+      {
+        Location loc = op.getLoc();
+        Value input = adaptor.getLhs();
+        auto inputType = cast<RankedTensorType>(input.getType());
+        // op0 = pow(x, 3)
+        Value cst_3 = rewriter.create<nova::ConstantOp>(
+            loc, inputType, DenseElementsAttr::get(inputType, {3.0f}));
+        auto op0 =
+            rewriter.create<tosa::PowOp>(loc, inputType, input, cst_3);
+        // op1 = mul(op0, 0.044715)
+        Value cst_004 = rewriter.create<nova::ConstantOp>(
+            loc, inputType, DenseElementsAttr::get(inputType, {4.471500e-02f}));
+        auto op1 =
+            rewriter.create<nova::MulOp>(loc, inputType, op0.getResult(),
+                                         cst_004);
+        // op2 = add(x, op1)
+        auto op2 = rewriter.create<tosa::AddOp>(loc, inputType,
+                                                input, op1);
+        // op3 = mul(op2, sqrt(2/pi))
+        Value cst_sqrt2pi = rewriter.create<nova::ConstantOp>(
+            loc, inputType, DenseElementsAttr::get(inputType, {0.797884583f}));
+        auto op3 =
+            rewriter.create<nova::MulOp>(loc, inputType, op2,
+                                         cst_sqrt2pi);
+        // op4 = tanh(op3)
+        auto op4 = rewriter.create<tosa::TanhOp>(loc, inputType,
+                                                 op3);
+        // op5 = add(op4 ,1)
+        Value cst_1 = rewriter.create<nova::ConstantOp>(
+            loc, inputType, DenseElementsAttr::get(inputType, {1.0f}));
+        auto op5 = rewriter.create<tosa::AddOp>(loc, inputType,
+                                                op4, cst_1);
+        // op6 = mul(x, 0.5)
+        Value cst_05 = rewriter.create<nova::ConstantOp>(
+            loc, inputType, DenseElementsAttr::get(inputType, {0.5f}));
+        auto op6 = rewriter.create<nova::MulOp>(
+            loc, inputType, input, cst_05);
 
+        auto op7 = rewriter.create<nova::MulOp>(loc, inputType, op6, op5);
+
+        rewriter.replaceOp(op, {op7.getResult()});
+
+        return success();
+      }
+    };
     // Pattern to convert nova.relu to tosa.relu
     struct NovaReluOpLowering : public OpConversionPattern<ReluOp>
     {
       using OpConversionPattern<ReluOp>::OpConversionPattern;
 
-      LogicalResult
-      matchAndRewrite(ReluOp op, OpAdaptor adaptor,
-                      ConversionPatternRewriter &rewriter) const override
+      LogicalResult matchAndRewrite(ReluOp op, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const override
       {
         Location loc = op.getLoc();
         Value input = adaptor.getInput();
@@ -590,7 +630,9 @@ namespace mlir
           target.addIllegalOp<nova::ReduceOp>();
           target.addIllegalOp<nova::ArgmaxOp>();
           target.addIllegalOp<nova::ArgMinOp>();
-
+          target.addIllegalOp<nova::SigmoidOp>();
+          target.addIllegalOp<nova::GeluOp>();
+          target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
           TypeConverter typeConverter;
           typeConverter.addConversion([](Type type)
                                       { return type; });
@@ -609,7 +651,8 @@ namespace mlir
 
     void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns)
     {
-      patterns.add<NovaReluOpLowering,
+      patterns.add<NovaReluOpLowering, 
+                   NovaGeluOpLowering,
                    NovaToTosaLoweringTemplate<nova::MaxOp>,
                    NovaToTosaLoweringTemplate<nova::MinOp>,
                    NovaToTosaLoweringTemplate<nova::AndOp>,
@@ -620,9 +663,8 @@ namespace mlir
                    NovaToTosaLoweringTemplate<nova::ReciprocalOp>,
                    NovaToTosaLoweringTemplate<nova::ReduceOp>,
                    NovaToTosaLoweringTemplate<nova::ArgmaxOp>,
-                   NovaToTosaLoweringTemplate<nova::ArgMinOp>
-
-                   >(
+                   NovaToTosaLoweringTemplate<nova::ArgMinOp>,
+                   NovaToTosaLoweringTemplate<nova::SigmoidOp>>(
           patterns.getContext());
     }
 

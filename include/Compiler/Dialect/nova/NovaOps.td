@@ -846,6 +846,24 @@ def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<I
   
   let hasVerifier = 1;
 }
+//-------------------------------------ACTIVATION FUNCTIONS-------------------------------------
+
+def Nova_SigmoidOp : Op<Nova_Dialect,"sigmoid", [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins Nova_Tensor:$lhs);
+  let results = (outs Nova_Tensor:$result);
+  let assemblyFormat = [{
+    $lhs attr-dict `:` type($lhs) }];
+}
+def Nova_GeluOp : Op<Nova_Dialect,"gelu", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let arguments = (ins Nova_Tensor:$lhs);
+  let results = (outs Nova_Tensor:$result);
+  
+  let assemblyFormat = [{
+    $lhs attr-dict `:` type($lhs) }];
+  
+}
+
+
 
 /*
 def Nova_TransposeOp : Op<Nova_Dialect,"transpose",[Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
