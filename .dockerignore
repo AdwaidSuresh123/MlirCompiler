@@ -1,0 +1,14 @@
+# Ignore build directories
+build/
+test-downstream-project/build/
+
+# Ignore git metadata
+.git/
+
+# Ignore temporary files
+*.swp
+*.o
+*.a
+*.so
+*~
+.DS_Store
