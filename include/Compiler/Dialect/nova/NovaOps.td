@@ -115,8 +115,8 @@ def Nova_ReduceOp : Op<Nova_Dialect,"reduce", [Pure,InferTypeOpInterface]> {
 
     let results = (outs Nova_Tensor:$output);
   let builders = [
-    OpBuilder<(ins "ReductionKind":$kind, "Value":$input, 
-                   "ArrayRef<int64_t>":$dimension, "bool":$keepdims,"bool":$ignore_nan, "Type":$resultType)>
+    OpBuilder<(ins "ReductionKind":$kind, "Value":$input, "Type":$resultType,CArg<"bool","false">:$keepdims,
+                   CArg<"ArrayRef<int64_t>","{0}">:$dimension,CArg<"bool","false">:$ignore_nan)>
   ];
  let skipDefaultBuilders=1;
   let hasVerifier=1;
@@ -862,23 +862,35 @@ def Nova_GeluOp : Op<Nova_Dialect,"gelu", [Pure, DeclareOpInterfaceMethods<Infer
     $lhs attr-dict `:` type($lhs) }];
   
 }
+def Nova_SoftmaxOp:Op<Nova_Dialect,"softmax",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+  let arguments=(ins Nova_Tensor:$input,
+   OptionalAttr<I32Attr>:$dimension);
+  let results =(outs Nova_Tensor:$result);
+
+  let assemblyFormat = [{
+    $input (`dimension` `=` $dimension^)? attr-dict `:` type($input) }];
+  let builders = [
+    OpBuilder<(ins "ReductionKind":$kind, "Value":$input, "Type":$resultType,CArg<"bool","false">:$keepdims,
+                   CArg<"int32_t","-1">:$dimension,CArg<"bool","false">:$ignore_nan)>
+  ];
+}
 
 
 
-/*
+
 def Nova_TransposeOp : Op<Nova_Dialect,"transpose",[Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
-  let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let arguments = (ins Nova_Tensor:$input,
+      DefaultValuedAttr<I32Attr, "-1">:$axes1,
+    DefaultValuedAttr<I32Attr, "-2">:$axes2);
   let results = (outs Nova_Tensor:$result);
   
   let assemblyFormat = [{
-    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+     $input (`axes1` `=` $axes1^)?(`axes2` `=` $axes2^)? attr-dict `:`   type($input) 
   }];
   
-  let hasVerifier = 1;
 }
-*/
-
 /*
+
 def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Convolution operation with padding and stride";
   let description = [{

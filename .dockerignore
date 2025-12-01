@@ -12,3 +12,5 @@ test-downstream-project/build/
 *.so
 *~
 .DS_Store
+
+.vscode

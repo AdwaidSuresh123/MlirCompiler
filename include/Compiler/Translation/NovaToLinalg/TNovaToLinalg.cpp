@@ -1086,6 +1086,7 @@ namespace mlir
           target.addIllegalOp<nova::CompareOp>();
           target.addIllegalOp<nova::SignOp>();
           target.addIllegalOp<nova::ArgMinOp>();
+          target.addIllegalOp<nova::TransposeOp>();
 
           target.markUnknownOpDynamicallyLegal([](Operation *)
                                                { return true; });
@@ -1148,6 +1149,7 @@ namespace mlir
           NovaToLinalgElementwiseConverter<nova::AtanhOp>,
           NovaToLinalgElementwiseConverter<nova::CompareOp>,
           NovaToLinalgElementwiseConverter<nova::SignOp>,
+  
           ArgMinConverter>(patterns.getContext());
     }
 

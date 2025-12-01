@@ -57,3 +57,5 @@ target_link_libraries(nova-opt PRIVATE
   MLIRTestTransforms
   MLIRLinalgTestPasses
 )
+
+install(TARGETS nova-opt RUNTIME DESTINATION bin)

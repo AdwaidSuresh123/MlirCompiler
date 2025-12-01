@@ -803,6 +803,46 @@ LogicalResult CompareOp::inferReturnTypes(
   inferredReturnTypes.push_back(resultType);
   return success();
 }
+// Transpose op
+LogicalResult TransposeOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  // getting dimensions
+  auto axes1 = attributes.get("axes1")? dyn_cast<IntegerAttr>(attributes.get("axes1")).getValue().getSExtValue():-1;
+  auto axes2 =attributes.get("axes2")? dyn_cast<IntegerAttr>(attributes.get("axes2")).getValue().getSExtValue():-2;
+  // handling negative indexing
+  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  auto shape = inputType.getShape();
+  auto size =shape.size();
+  if(size<1){
+    mlir::emitError(*loc)<<"transpose only accepts above rank 1";
+  }
+  if (axes1 < 0)
+  {
+    axes1 += size;
+  }
+  if (axes2 < 0)
+  {
+    axes2 += size;
+  }
+  llvm::SmallVector<int64_t> resshape;
+  for(int64_t i=0;i<size;i++){
+    if(i==axes1){
+      resshape.push_back(shape[axes2]);
+    }
+    else if(i==axes2){
+      resshape.push_back(shape[axes1]);
+    }
+    else{
+      resshape.push_back(shape[i]);
+    }
+  }
+inferredReturnTypes.push_back(RankedTensorType::get(resshape,inputType.getElementType()));
+  return success();
+}
+
 // MatmulOp
 
 LogicalResult MatmulOp::verify() { return verifyBinaryOp(*this); }
@@ -998,8 +1038,8 @@ LogicalResult MatmulOp::inferReturnTypes(
 //---------------------------------reduce op----------------------------------------------------
 
 void ReduceOp::build(OpBuilder &builder, OperationState &state,
-                     ReductionKind kind, Value input, ArrayRef<int64_t> dimension,
-                     bool keepdims, bool ignore_nan, Type resultType)
+                     ReductionKind kind, Value input, Type resultType, bool keepdims, ArrayRef<int64_t> dimension,
+                     bool ignore_nan)
 {
   state.addOperands(input);
   state.addAttribute("kind", builder.getI32IntegerAttr(static_cast<int32_t>(kind)));
@@ -1247,3 +1287,4 @@ INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AsinhOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AcoshOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AtanhOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(GeluOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SoftmaxOp);

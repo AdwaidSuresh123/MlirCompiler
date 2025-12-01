@@ -11,6 +11,8 @@ reference
 
 test/output.ll
 
+docker-desktop-amd64.deb
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt

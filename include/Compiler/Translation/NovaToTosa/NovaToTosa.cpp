@@ -23,7 +23,7 @@ namespace mlir
     struct NovaOpTosaOp
     {
       // helper function
-      static SmallVector<int64_t> shapeFind(Type currType, int64_t axis)
+      static SmallVector<int64_t> shapeFind(Type currType, int64_t axis) //if 2x3,axis=1 is given returns 
       {
         SmallVector<int64_t> newshape; // paramters=>inputshape(auto) and axis(int32)
         auto rankedType = cast<RankedTensorType>(currType);
@@ -137,11 +137,9 @@ namespace mlir
       }
       static Value mappingtosa(nova::SigmoidOp op, Type resultType, ValueRange input, OpBuilder *builder)
       {
-        auto restype = dyn_cast<mlir::TensorType>(resultType);
-        auto v = builder->create<tosa::CastOp>(op.getLoc(), restype, input[0]);
-        return builder->create<tosa::SigmoidOp>(op.getLoc(), resultType, v);
+        return builder->create<tosa::SigmoidOp>(op.getLoc(), resultType, input[0]);
       }
-      //-------------------------reduce op----------------------
+      //-------------------------reduce case helper----------------------
       static Value mappincasereduce(nova::ReduceOp op, Type temresult, Value v, mlir::IntegerAttr axisAttr, OpBuilder *builder, mlir::tosa::NanPropagationModeAttr nanmode)
       {
         nova::ReductionKind rk = op.getKind();
@@ -470,6 +468,9 @@ namespace mlir
 
         return v;
       }
+
+    
+    
     };
     // pattern to convert nova.gelu to seauence of operations
     /// gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
@@ -560,7 +561,55 @@ namespace mlir
         return success();
       }
     };
-    //
+    //creating a  lowering for softmax
+    struct NovaSoftmaxLoweringPattern:public OpConversionPattern<SoftmaxOp>
+    {
+      using OpConversionPattern<SoftmaxOp>::OpConversionPattern;
+      LogicalResult matchAndRewrite (SoftmaxOp op,OpAdaptor adaptor,ConversionPatternRewriter &rewriter)const override{
+
+        Location loc=op.getLoc();
+        Value input=adaptor.getInput();
+        auto restype=cast<RankedTensorType>(op.getType());
+        auto inputType=cast<RankedTensorType>(input.getType());
+        auto size=inputType.getShape().size();
+        int32_t dimension=op.getDimension().has_value()?op.getDimension().value():-1;
+        if(dimension<0){
+        //  auto size1=inputType.getShape().size() - 1;
+          dimension+=size;
+        }
+        SmallVector<int64_t> dim;
+        dim.push_back(dimension);
+
+        bool keepdims=true;
+        nova::ReductionKind kind= nova::ReductionKind::MAX;
+        auto shape=NovaOpTosaOp::shapeFind(inputType,dimension);
+        auto tempresult = RankedTensorType::get(shape, restype.getElementType());
+
+        Value cast = rewriter.create<tosa::CastOp>(op.getLoc(), restype, input);
+
+
+        Value op1=rewriter.create<nova::ReduceOp>(loc,kind,cast,tempresult,keepdims,dim);
+         //step2  
+        //create a nova sub op with input and op1
+        Value op2=rewriter.create<nova::SubOp>(loc,input,op1);
+        //step3
+        //create  a exp op
+        Value op3=rewriter.create<nova::ExpOp>(loc,op2);
+        //step4
+        //create a nova reduce op with sum attribute
+        kind=nova::ReductionKind::SUM;
+
+        Value op4=rewriter.create<nova::ReduceOp>(loc,kind,op3,tempresult,keepdims,dim);
+        //step 5
+        //create div op with op4 and op3
+        Value op5=rewriter.create<nova::DivOp>(loc,op3,op4);
+        rewriter.replaceOp(op,op5);
+
+        return success();
+
+      }
+    };
+    
     // creating a template
     template <typename NovaTopTy>
     class NovaToTosaLoweringTemplate : public OpConversionPattern<NovaTopTy>
@@ -632,6 +681,7 @@ namespace mlir
           target.addIllegalOp<nova::ArgMinOp>();
           target.addIllegalOp<nova::SigmoidOp>();
           target.addIllegalOp<nova::GeluOp>();
+          target.addIllegalOp<nova::SoftmaxOp>();
           target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
           TypeConverter typeConverter;
           typeConverter.addConversion([](Type type)
@@ -653,6 +703,7 @@ namespace mlir
     {
       patterns.add<NovaReluOpLowering, 
                    NovaGeluOpLowering,
+                   NovaSoftmaxLoweringPattern,
                    NovaToTosaLoweringTemplate<nova::MaxOp>,
                    NovaToTosaLoweringTemplate<nova::MinOp>,
                    NovaToTosaLoweringTemplate<nova::AndOp>,

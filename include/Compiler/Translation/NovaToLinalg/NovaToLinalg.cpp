@@ -122,6 +122,10 @@ namespace mlir
 
         // Get result type and create empty output tensor
         auto resultType = llvm::dyn_cast<RankedTensorType>(op.getType());
+          if(resultType.getRank()>3){
+          mlir::emitError(op.getLoc())<<"Matmul should have less than 3 rank";
+          return failure();
+        }
         if (!resultType)
         {
           return rewriter.notifyMatchFailure(op, "expected ranked tensor result");
@@ -138,7 +142,16 @@ namespace mlir
         Value outputTensor = rewriter.create<linalg::FillOp>(
                                          op.getLoc(), cst, emptyTensor)
                                  .getResult(0);
+                      
 
+        //batch mamtul
+        if(resultType.getRank()==3){
+          rewriter.replaceOpWithNewOp<linalg::BatchMatmulOp>(
+            op,ValueRange{lhs,rhs},
+            outputTensor
+          );
+          return success();
+        }
         // Create linalg.matmul with inputs and output
         rewriter.replaceOpWithNewOp<linalg::MatmulOp>(
             op,
@@ -148,45 +161,53 @@ namespace mlir
       }
     };
     //-------------------------------------------------------------------
-    // Square
+    // Transpose
     //-------------------------------------------------------------------
 
-    // struct NovaSquareOpLowering : public OpConversionPattern<nova::SquareOp> {
-    //   using OpConversionPattern<nova::SquareOp>::OpConversionPattern;
+    struct NovaTransposeOpLowering : public OpConversionPattern<nova::TransposeOp>
+    {
+      using OpConversionPattern<nova::TransposeOp>::OpConversionPattern;
 
-    //   LogicalResult matchAndRewrite(nova::SquareOp op,OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override{
-    //     auto operands = adaptor.getOperands();
-
-    //     Value lhs = operands [0];
-
-    //     auto resultType = llvm::dyn_cast<RankedTensorType>(op.getType());
-    //     if (!resultType) {
-    //       return rewriter.notifyMatchFailure(op, "expected ranked tensor result type");
-    //     }
-
-    //     auto inputType = llvm::dyn_cast<RankedTensorType>(lhs.getType());
-    //     if (!inputType) {
-    //       return rewriter.notifyMatchFailure(op, "expected ranked tensor input type");
-    //     }
-
-    //     auto loc = op.getLoc();
-
-    //     Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-    //         loc, resultType.getShape(), resultType.getElementType());
-
-    //     rewriter.replaceOpWithNewOp<linalg::SquareOp>(
-    //         op,
-    //         ValueRange{lhs},      // inputs
-    //         emptyTensor); // outputs
-    //     return success();
-
-    //   }
-    //};
+      LogicalResult
+      matchAndRewrite(nova::TransposeOp op, OpAdaptor adaptor,
+                      ConversionPatternRewriter &rewriter) const override
+      {        
+        auto resultType = llvm::dyn_cast<RankedTensorType>(op.getType());
+        auto resultshape=dyn_cast<RankedTensorType>(resultType).getShape();
+        llvm::SmallVector<int64_t> resshape;
+        auto size =resultshape.size();
+        int axes1=op.getAxes1();
+        int axes2=op.getAxes2();
+        if(axes1<0)
+        axes1+=size;
+        if(axes2<0)
+        axes2+=size;
+        for(int64_t i=0;i<resultshape.size();i++){
+        if(i==axes1){
+          resshape.push_back(axes2);
+        }
+        else if(i==axes2){
+          resshape.push_back(axes1);
+        }
+        else{
+          resshape.push_back(i);
+        }
+        }
+         
+        Location loc = op.getLoc();
+        auto permutedInit = rewriter.create<tensor::EmptyOp>(
+       loc, resultshape, op.getInput().getType().getElementType()); 
+        rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
+        op, op.getInput(), permutedInit,resshape);
+        return success();
+      }
+ };
 
     void populateNovaToLinalgPatterns(RewritePatternSet &patterns)
     {
       patterns.add<NovaMatmulOpLowering,
-                   NovaBroadcastInDimOpLowering
+                   NovaBroadcastInDimOpLowering,
+                   NovaTransposeOpLowering
                    //    ,NovaSquareOpLowering
                    >(patterns.getContext());
     }
