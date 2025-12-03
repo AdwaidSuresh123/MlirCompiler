@@ -2,6 +2,7 @@
 add_subdirectory(Dialect)
 add_subdirectory(Transforms)
 add_subdirectory(Pipeline)
+add_subdirectory(API)
 
 # --- Additions for Export/Installation ---
 
@@ -15,6 +16,7 @@ install(
         MLIRNovaToArithTransforms
         MLIRNovaToLinalgTransforms
         MLIRNovaToTosaTransforms
+        NovaCompilerAPI
     EXPORT mlir-compilerTargets  # Name the export set
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"

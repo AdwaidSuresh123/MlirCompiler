@@ -4,10 +4,11 @@
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/BuiltinTypeInterfaces.td"
+
 include "NovaDialect.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinTypes.td" 
-
 
 def I4 : Type<CPred<"$_self.isInteger(4)">, "4-bit integer">,
          BuildableType<"$_builder.getIntegerType(4)">;
@@ -15,7 +16,8 @@ def I4 : Type<CPred<"$_self.isInteger(4)">, "4-bit integer">,
 def Nova_ElementType : AnyTypeOf<[I1,I4, I8, I16, I32, I64, F16, BF16, F32, F64]>;
 def Nova_Tensor : TensorOf<[Nova_ElementType]>;
 
-//enum div
+// operations start
+//enum 
 def Nova_Comparisonenum:I32EnumAttr<"ComparisonType","How operands should be compared",[
   I32EnumAttrCase<"EQ",0,"eq">,
   I32EnumAttrCase<"NEQ",1,"neq">,

@@ -1288,3 +1288,13 @@ INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AcoshOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AtanhOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(GeluOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SoftmaxOp);
+
+void SoftmaxOp::build(OpBuilder &builder, OperationState &state,
+                      ReductionKind kind, Value input, Type resultType,
+                      bool keepdims, int32_t dimension, bool ignore_nan) {
+  state.addOperands(input);
+  if (dimension != -1) {
+    state.addAttribute("dimension", builder.getI32IntegerAttr(dimension));
+  }
+  state.addTypes(resultType);
+}

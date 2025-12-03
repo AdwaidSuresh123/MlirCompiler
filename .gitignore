@@ -12,6 +12,8 @@ reference
 test/output.ll
 
 docker-desktop-amd64.deb
+.dockerignore
+Dockerfile
 
 # CMake generated files
 CMakeFiles/

@@ -45,7 +45,7 @@ add_subdirectory(tools)
 include(CMakePackageConfigHelpers)
 
 # 1. Generate configuration file for find_package()
-# This file tells consumers how to use your installed project.
+# This file tells users how to use your installed project.
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"

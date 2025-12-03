@@ -4,7 +4,8 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-
+#include "mlir/Target/LLVMIR/Dialect/All.h"
+#include "mlir/Target/LLVMIR/Export.h"
 
 #include "mlir/Transforms/ViewOpGraph.h"
 #include "mlir/Transforms/Passes.h"
@@ -62,6 +63,9 @@ int main(int argc, char **argv) {
   mlir::func::registerTransformDialectExtension(registry);
   mlir::scf::registerTransformDialectExtension(registry);
   mlir::memref::registerTransformDialectExtension(registry);
+  // Register LLVM IR translation
+  mlir::registerLLVMDialectTranslation(registry);
+  mlir::registerAllToLLVMIRTranslations(registry);
 
   mlir::nova::registerNovaPipelines();
 

@@ -52,6 +52,10 @@ target_link_libraries(nova-opt PRIVATE
   MLIRVectorDialect
   MLIRVectorTransforms
 
+  # LLVM IR translation support
+  MLIRToLLVMIRTranslationRegistration
+  MLIRLLVMToLLVMIRTranslation
+
   # Test support for linalg patterns
   MLIRTestDialect
   MLIRTestTransforms
