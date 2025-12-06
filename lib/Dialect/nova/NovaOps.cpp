@@ -21,11 +21,35 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
                                                    DictionaryAttr attributes, OpaqueProperties properties,
                                                    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  // 1..finding shape
   mlir::Builder builder(context);
   auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
   auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
-  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(),
+  Type lhselemtype = lhstensor.getElementType();
+  Type rhselemType = rhstensor.getElementType();
+  //if complex
+   if( isa<ComplexType>(lhselemtype)){
+      auto clhs = dyn_cast<ComplexType>(lhselemtype);
+      auto elemtype = clhs.getElementType();
+      if(auto ftype = dyn_cast<FloatType>(elemtype)){
+        unsigned bitwidth = ftype.getWidth();
+        if(bitwidth==64){
+    inferredReturnTypes.push_back(
+        RankedTensorType::get(computeBroadcastShape(lhstensor.getShape(),
+                                                rhstensor.getShape()).value(),
+                                              ComplexType::get(builder.getF64Type())));
+        return success();
+        }
+        inferredReturnTypes.push_back(
+        RankedTensorType::get(computeBroadcastShape(lhstensor.getShape(),
+                                                rhstensor.getShape()).value(),
+                                              ComplexType::get(builder.getF32Type())));   
+        return success();                                     
+    }
+       return success();}
+  // 1..finding shape
+   lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
+   rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+   auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(),
                                                 rhstensor.getShape());
   if (!broadcastedShape)
   {
@@ -38,8 +62,8 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
     return failure();
   }
   // 2.fiding dtype
-  Type lhselemtype = lhstensor.getElementType();
-  Type rhselemType = rhstensor.getElementType();
+  lhselemtype = lhstensor.getElementType();
+  rhselemType = rhstensor.getElementType();
   unsigned resultbitwidth = 0;
   auto flhstype = dyn_cast<mlir::FloatType>(lhselemtype);
   auto frhstype = dyn_cast<mlir::FloatType>(rhselemType);
@@ -67,7 +91,7 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
     resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
   }
   // if both integer get higher bitwidth and push back the result int type
-  else
+  else if(ilhstype && irhstype)
   {
     unsigned lhsbitwidth = ilhstype.getWidth();
     unsigned rhsbitwidth = irhstype.getWidth();
@@ -78,7 +102,7 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
     case 64:
       resultType = builder.getI64Type();
       break;
-    case 32:
+
       resultType = builder.getI32Type();
       break;
     case 16:
@@ -87,6 +111,11 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
     inferredReturnTypes.push_back(
         RankedTensorType::get(*broadcastedShape, resultType));
     return success();
+  }
+  else{
+    inferredReturnTypes.push_back(
+        RankedTensorType::get(*broadcastedShape, lhselemtype));
+        return success();
   }
   auto resulType = builder.getF16Type();
   switch (resultbitwidth)
@@ -113,6 +142,23 @@ static LogicalResult BinaryFloatPromotionReturnType(MLIRContext *context, std::o
   Type lhselemtype = lhstensor.getElementType();
   Type rhselemType = rhstensor.getElementType();
   unsigned resultbitwidth = 0;
+    if( isa<ComplexType>(lhselemtype)){
+      auto clhs = dyn_cast<ComplexType>(lhselemtype);
+      auto elemtype = clhs.getElementType();
+      if(auto ftype = dyn_cast<FloatType>(elemtype)){
+        unsigned bitwidth = ftype.getWidth();
+        if(bitwidth==64){
+    inferredReturnTypes.push_back(
+        RankedTensorType::get(computeBroadcastShape(lhstensor.getShape(),
+                            rhstensor.getShape()).value(),
+                            builder.getF64Type()));
+        return success();
+        }
+        inferredReturnTypes.push_back(
+        RankedTensorType::get(computeBroadcastShape(lhstensor.getShape(),
+            rhstensor.getShape()).value(),builder.getF64Type()));                                      
+    
+       return success();}}
   // 1.finding dtype
   auto flhstype = dyn_cast<mlir::FloatType>(lhselemtype);
   auto frhstype = dyn_cast<mlir::FloatType>(rhselemType);
@@ -285,14 +331,19 @@ static LogicalResult verifyBinaryOp(OpType op)
   {
     return op.emitOpError("operands and result must be tensor types");
   }
+  //if one is complex another must be complex of same element type
+  if(isa<ComplexType>(llvm::dyn_cast<TensorType>(lhsType).getElementType()) ||
+     isa<ComplexType>(llvm::dyn_cast<TensorType>(rhsType).getElementType())){
+       auto clhs = dyn_cast<ComplexType>(llvm::dyn_cast<TensorType>(lhsType).getElementType());
+       auto crhs = dyn_cast<ComplexType>(llvm::dyn_cast<TensorType>(rhsType).getElementType());
+       if(!clhs || !crhs){
+        return op.emitOpError("if one operand is complex, the other must also be complex");
+       }
+       if(clhs.getElementType() != crhs.getElementType()){
+        return op.emitOpError("complex operands must have the same element type");
+       }
+     }
 
-  // auto lhsElementType = cast<TensorType>(lhsType).getElementType();
-  // auto rhsElementType = cast<TensorType>(rhsType).getElementType();
-  // auto resultElementType = cast<TensorType>(resultType).getElementType();
-
-  // if (lhsElementType != rhsElementType || lhsElementType != resultElementType) {
-  //   return op.emitOpError("operands and result must have the same element type");
-  // }
 
   return success();
 }
@@ -368,6 +419,7 @@ LogicalResult AddOp::inferReturnTypes(
       context, loc, operands, attributes, properties, regions, inferredReturnTypes);
 }
 
+
 // SubOp
 
 LogicalResult SubOp::verify() { return verifyBinaryOp(*this); }
@@ -409,7 +461,23 @@ LogicalResult DivOp::inferReturnTypes(
 
 // ModOp
 
-LogicalResult ModOp::verify() { return verifyBinaryOp(*this); }
+LogicalResult ModOp::verify() { 
+      for (Value operand : getOperands()) {
+        Type operandType = operand.getType();
+
+        // Check if the operand is a ShapedType (Tensor or MemRef)
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      }
+  return verifyBinaryOp(*this); }
 
 LogicalResult ModOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
@@ -435,7 +503,23 @@ LogicalResult PowOp::inferReturnTypes(
 
 // MaxOp
 
-LogicalResult MaxOp::verify() { return verifyBinaryOp(*this); }
+LogicalResult MaxOp::verify() {
+      for (Value operand : getOperands()) {
+        Type operandType = operand.getType();
+
+        // Check if the operand is a ShapedType (Tensor or MemRef)
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      } 
+  return verifyBinaryOp(*this); }
 
 LogicalResult MaxOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
@@ -448,7 +532,23 @@ LogicalResult MaxOp::inferReturnTypes(
 
 // MinOp
 
-LogicalResult MinOp::verify() { return verifyBinaryOp(*this); }
+LogicalResult MinOp::verify() { 
+      for (Value operand : getOperands()) {
+        Type operandType = operand.getType();
+
+        // Check if the operand is a ShapedType (Tensor or MemRef)
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      }
+  return verifyBinaryOp(*this); }
 
 LogicalResult MinOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
@@ -461,7 +561,23 @@ LogicalResult MinOp::inferReturnTypes(
 
 // AndOp
 
-LogicalResult AndOp::verify() { return verifyBinaryOp(*this); }
+LogicalResult AndOp::verify() { 
+      for (Value operand : getOperands()) {
+        Type operandType = operand.getType();
+
+        // Check if the operand is a ShapedType (Tensor or MemRef)
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      }
+  return verifyBinaryOp(*this); }
 
 LogicalResult AndOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
@@ -473,7 +589,7 @@ LogicalResult AndOp::inferReturnTypes(
   inferredReturnTypes.push_back(resultType);
   return success();
 }
-
+//not op
 LogicalResult NotOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
@@ -487,7 +603,23 @@ LogicalResult NotOp::inferReturnTypes(
 
 // OrOp
 
-LogicalResult OrOp::verify() { return verifyBinaryOp(*this); }
+LogicalResult OrOp::verify() { 
+      for (Value operand : getOperands()) {
+        Type operandType = operand.getType();
+
+        // Check if the operand is a ShapedType (Tensor or MemRef)
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      }
+  return verifyBinaryOp(*this); }
 
 LogicalResult OrOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
@@ -502,7 +634,23 @@ LogicalResult OrOp::inferReturnTypes(
 
 // XorOp
 
-LogicalResult XorOp::verify() { return verifyBinaryOp(*this); }
+LogicalResult XorOp::verify() { 
+      for (Value operand : getOperands()) {
+        Type operandType = operand.getType();
+
+        // Check if the operand is a ShapedType (Tensor or MemRef)
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      }
+  return verifyBinaryOp(*this); }
 
 LogicalResult XorOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
@@ -513,6 +661,33 @@ LogicalResult XorOp::inferReturnTypes(
   Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
   inferredReturnTypes.push_back(resultType);
   return success();
+}
+LogicalResult AbsOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
+  Type elementType = llvm::dyn_cast<TensorType>(operands[0].getType()).getElementType();
+  if(isa<FloatType>(elementType) || isa<IntegerType>(elementType)){
+    Type resultType = RankedTensorType::get(shape, elementType);
+    inferredReturnTypes.push_back(resultType);
+    return success();
+  }
+  else if(isa<ComplexType>(elementType)){
+    auto ctype = llvm::dyn_cast<ComplexType>(elementType);
+    Type  realtype = ctype.getElementType();
+    Type resultType = RankedTensorType::get(shape, realtype);
+    inferredReturnTypes.push_back(resultType);
+    return success();
+  }
+  else{
+    if (loc)
+    {
+      mlir::emitError(*loc) << "abs only supports float, integer and complex types";
+    }
+    return failure();
+  }
 }
 //---------------------------------ConstantOp-----------------
 
@@ -536,6 +711,21 @@ void CompareOp::build(OpBuilder &builder, OperationState &state,
 }
 LogicalResult CompareOp::verify()
 {
+    for (Value operand : getOperands()) {
+        Type operandType = operand.getType();
+
+        // Check if the operand is a ShapedType (Tensor or MemRef)
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      }
   auto lhsType = getLhs().getType();
   auto rhsType = getRhs().getType();
 
@@ -845,7 +1035,23 @@ inferredReturnTypes.push_back(RankedTensorType::get(resshape,inputType.getElemen
 
 // MatmulOp
 
-LogicalResult MatmulOp::verify() { return verifyBinaryOp(*this); }
+LogicalResult MatmulOp::verify() { 
+      for (Value operand : getOperands()) {
+        Type operandType = operand.getType();
+
+        // Check if the operand is a ShapedType (Tensor or MemRef)
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      }
+      return verifyBinaryOp(*this); }
 
 /// Type inference for matrix multiplication
 LogicalResult MatmulOp::inferReturnTypes(
@@ -879,11 +1085,11 @@ LogicalResult MatmulOp::inferReturnTypes(
     return failure();
   }
   // function to find the result element type
+
   mlir::Builder builder(context);
   auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
   auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
-  auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(),
-                                                rhstensor.getShape());
+
 
   // 2.fiding dtype
   Type lhselemtype = lhstensor.getElementType();
@@ -998,29 +1204,20 @@ LogicalResult MatmulOp::inferReturnTypes(
   }
 
   // Batch dimensions
-  size_t lhsBatchRank = lhsShape.size() > 2 ? lhsShape.size() - 2 : 0;
-  size_t rhsBatchRank = rhsShape.size() > 2 ? rhsShape.size() - 2 : 0;
-  size_t maxBatchRank = std::max(lhsBatchRank, rhsBatchRank);
+  // Batch dimensions
+  auto lhsBatchShape = lhsShape.drop_back(2);
+  auto rhsBatchShape = rhsShape.drop_back(rhsShape.size() == 1 ? 1 : 2);
 
-  for (size_t i = 0; i < maxBatchRank; ++i)
-  {
-    int64_t lhsDim = (i < lhsBatchRank) ? lhsShape[lhsBatchRank - 1 - i] : 1;
-    int64_t rhsDim = (i < rhsBatchRank) ? rhsShape[rhsBatchRank - 1 - i] : 1;
+  auto broadcastedBatchShape = computeBroadcastShape(lhsBatchShape, rhsBatchShape);
 
-    if (lhsDim == rhsDim || lhsDim == 1 || rhsDim == 1 ||
-        lhsDim == ShapedType::kDynamic || rhsDim == ShapedType::kDynamic)
-    {
-      resultShape.insert(resultShape.begin(), (lhsDim == 1) ? rhsDim : lhsDim);
+  if (!broadcastedBatchShape) {
+    if (location) {
+      mlir::emitError(*location) << "matmul: incompatible batch dimensions for broadcasting";
     }
-    else
-    {
-      if (location)
-      {
-        mlir::emitError(*location) << "matmul: incompatible batch dimensions";
-      }
-      return failure();
-    }
+    return failure();
   }
+
+  resultShape.append(broadcastedBatchShape->begin(), broadcastedBatchShape->end());
 
   if (lhsShape.size() >= 2)
   {
@@ -1031,6 +1228,7 @@ LogicalResult MatmulOp::inferReturnTypes(
   {
     resultShape.push_back(rhsShape[rhsShape.size() - 1]);
   }
+
 
   inferredReturnTypes.push_back(RankedTensorType::get(resultShape, resultType));
   return success();
@@ -1160,6 +1358,21 @@ LogicalResult ReduceOp::verify()
   {
     return emitOpError("output must be a ranked tensor");
   }
+  
+        auto operand = getInput();
+        Type operandType = operand.getType();
+
+        if (auto shapedType = dyn_cast<ShapedType>(operandType)) {
+            // Get the elemental type
+            Type elementType = shapedType.getElementType();
+
+            // Check if the element type is complex
+            if (isa<ComplexType>(elementType)) {
+                return emitOpError("does not support complex number operands, but found type: ")
+                       << elementType;
+            }
+        } 
+      
 
   int64_t inputRank = inputType.getRank();
 
@@ -1255,6 +1468,47 @@ LogicalResult ReduceOp::verify()
 
   return success();
 }
+//------------------------operand not support complex number check---------------------------------
+#define VERIFY_UNARY_OP_NO_COMPLEX(Op)                    \
+  LogicalResult Op::verify()                              \
+  {                                                       \
+    auto operand = getOperand();                          \
+    Type operandType = operand.getType();                 \
+                                                          \
+    if (auto shapedType = dyn_cast<ShapedType>(operandType)) { \                     
+        Type elementType = shapedType.getElementType();   \
+        if (isa<ComplexType>(elementType)) {              \
+            return emitOpError("does not support complex number operands, but found type: ") \
+                   << elementType;                        \
+        }                                                 \
+    }                                                     \
+    return success();                                     \
+  }
+//appling no complex condition
+VERIFY_UNARY_OP_NO_COMPLEX(Exp2Op);
+VERIFY_UNARY_OP_NO_COMPLEX(Log2Op);
+VERIFY_UNARY_OP_NO_COMPLEX(Log10Op);
+VERIFY_UNARY_OP_NO_COMPLEX(SinhOp);
+VERIFY_UNARY_OP_NO_COMPLEX(CoshOp);
+VERIFY_UNARY_OP_NO_COMPLEX(AsinOp);
+VERIFY_UNARY_OP_NO_COMPLEX(AcosOp);
+VERIFY_UNARY_OP_NO_COMPLEX(AtanOp);
+VERIFY_UNARY_OP_NO_COMPLEX(AsinhOp);
+VERIFY_UNARY_OP_NO_COMPLEX(AcoshOp);
+VERIFY_UNARY_OP_NO_COMPLEX(AtanhOp);
+VERIFY_UNARY_OP_NO_COMPLEX(GeluOp);
+VERIFY_UNARY_OP_NO_COMPLEX(SoftmaxOp);
+VERIFY_UNARY_OP_NO_COMPLEX(ReciprocalOp);
+VERIFY_UNARY_OP_NO_COMPLEX(SquareOp);
+VERIFY_UNARY_OP_NO_COMPLEX(ReluOp);
+VERIFY_UNARY_OP_NO_COMPLEX(SigmoidOp);
+
+
+
+
+
+
+
 
 //------------------------unary casting infer return types---------------------------------
 #define INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(Op)                        \

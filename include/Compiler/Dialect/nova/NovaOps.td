@@ -9,11 +9,14 @@ include "mlir/IR/BuiltinTypeInterfaces.td"
 include "NovaDialect.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinTypes.td" 
-
+// data types
 def I4 : Type<CPred<"$_self.isInteger(4)">, "4-bit integer">,
          BuildableType<"$_builder.getIntegerType(4)">;
 
-def Nova_ElementType : AnyTypeOf<[I1,I4, I8, I16, I32, I64, F16, BF16, F32, F64]>;
+def Nova_ElementType : AnyTypeOf<[
+  I1,I4, I8, I16, I32, I64, 
+  F16, BF16, F32, F64,
+  Complex<F64>,Complex<F32>]>;
 def Nova_Tensor : TensorOf<[Nova_ElementType]>;
 
 // operations start
@@ -269,19 +272,29 @@ def Nova_ConstantOp : Nova_UnaryOp<"constant", [Pure]> {
 
 //-----------ARITHMETIC OPERATIONS-----------------------------
 
-def Nova_AbsOp : Nova_UnaryOp<"abs", [Pure, SameOperandsAndResultType]> {
+def Nova_AbsOp : Nova_UnaryOp<"abs", [Pure,InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
+        let extraClassDeclaration = [{
+    static ::mlir::LogicalResult inferReturnTypes(
+      ::mlir::MLIRContext *context,
+      std::optional<::mlir::Location> loc,
+      ::mlir::ValueRange operands,
+      ::mlir::DictionaryAttr attributes,
+      ::mlir::OpaqueProperties properties,
+      ::mlir::RegionRange regions,
+      ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
+  }];
 }
 
 def Nova_SquareOp : Nova_UnaryOp<"square", [Pure, SameOperandsAndResultType]>{
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -327,7 +340,7 @@ def Nova_NegOp : Nova_UnaryOp<"neg", [Pure, SameOperandsAndResultType]>{
 def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultType]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -357,7 +370,7 @@ def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultT
  def Nova_Exp2Op : Nova_UnaryOp<"exp2", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -393,7 +406,7 @@ def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultT
  def Nova_Log2Op : Nova_UnaryOp<"log2", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -411,7 +424,7 @@ def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultT
  def Nova_Log10Op : Nova_UnaryOp<"log10", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1; 
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -489,7 +502,7 @@ def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultT
  def Nova_AsinOp : Nova_UnaryOp<"asin", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -507,7 +520,7 @@ def Nova_ReciprocalOp : Nova_UnaryOp<"reciprocal", [Pure, SameOperandsAndResultT
 def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -526,7 +539,7 @@ def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
  def Nova_AtanOp : Nova_UnaryOp<"atan", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -544,7 +557,7 @@ def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
  def Nova_SinhOp : Nova_UnaryOp<"sinh", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -563,7 +576,7 @@ def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
  def Nova_CoshOp : Nova_UnaryOp<"cosh", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -581,7 +594,7 @@ def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
  def Nova_TanhOp : Nova_UnaryOp<"tanh", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -599,7 +612,7 @@ def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
  def Nova_AsinhOp : Nova_UnaryOp<"asinh", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -618,7 +631,7 @@ def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
  def Nova_AcoshOp : Nova_UnaryOp<"acosh", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -637,7 +650,7 @@ def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
  def Nova_AtanhOp : Nova_UnaryOp<"atanh", [Pure, InferTypeOpInterface]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -657,7 +670,7 @@ def Nova_AcosOp : Nova_UnaryOp<"acos", [Pure, InferTypeOpInterface]> {
 def Nova_ReluOp : Nova_UnaryOp<"relu", [Pure, SameOperandsAndResultType]> {
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
@@ -745,7 +758,7 @@ def Nova_ModOp : Nova_BinaryOp<"mod", []> {
   let description = [{
     Performs element-wise remainder of dividend lhs and divisor rhs.
     Computation example: a=[2,7,10] b=[2,2,4] result=[0,1,2]
-  
+  let hasVerifier=1;  
     Example:
       %r = nova.mod %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
   }];
@@ -767,7 +780,7 @@ def Nova_MaxOp : Nova_BinaryOp<"max", [Commutative]> {
   let description = [{
     Performs element-wise max operation on tensors.
     Example: a=[1,2,3] b=[2,4,2] result=[2,4,3]
-  
+  let hasVerifier=1;  
     Example:
       %r = nova.max %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
   }];
@@ -778,7 +791,7 @@ def Nova_MinOp : Nova_BinaryOp<"min", [Commutative]> {
   let description = [{
     Performs element-wise min operation on tensors.
     Example: a=[1,2,3] b=[2,4,2] result=[1,2,2]
-  
+  let hasVerifier=1;  
     Example:
       %r = nova.min %a, %b : tensor<2x3xf32>, tensor<3xf32> -> tensor<2x3xf32>
   }];
@@ -789,7 +802,7 @@ def Nova_AndOp : Nova_BinaryOp<"and", [Commutative]> {
   let description = [{
     Performs element-wise logical AND operation on tensors.
     Example: a=[true,false,true] b=[true,true,false] result=[true,false,false]
-  
+  let hasVerifier=1;  
     Example:
       %r = nova.and %a, %b : tensor<2x3xi1>, tensor<3xi1> -> tensor<2x3xi1>
   }];
@@ -800,7 +813,7 @@ def Nova_OrOp : Nova_BinaryOp<"or", [Commutative]> {
   let description = [{
     Performs element-wise logical OR operation on tensors.
     Example: a=[true,false,true] b=[true,true,false] result=[true,true,true]
-  
+  let hasVerifier=1;  
     Example:
       %r = nova.or %a, %b : tensor<2x3xi1>, tensor<3xi1> -> tensor<2x3xi1>
   }];
@@ -811,7 +824,7 @@ def Nova_XorOp : Nova_BinaryOp<"xor", [Commutative]> {
   let description = [{
     Performs element-wise logical XOR operation on tensors.
     Example: a=[true,false,true] b=[true,true,false] result=[false,true,true]
-  
+  let hasVerifier=1;  
     Example:
       %r = nova.xor %a, %b : tensor<2x3xi1>, tensor<3xi1> -> tensor<2x3xi1>
   }];
@@ -822,7 +835,7 @@ def Nova_NotOp : Nova_UnaryOp<"not", [Commutative,InferTypeOpInterface]> {
   let description = [{
     Performs element-wise logical NOT operation on tensors.
     Example: a=[true,false,true] result=[false,true,false]
-  
+  let hasVerifier=1;  
     Example:
       %r = nova.not %a tensor<3xi1> -> tensor<2x3xi1>
   }];
@@ -841,7 +854,7 @@ def Nova_NotOp : Nova_UnaryOp<"not", [Commutative,InferTypeOpInterface]> {
 def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
   let results = (outs Nova_Tensor:$result);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
   }];
@@ -853,13 +866,14 @@ def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<I
 def Nova_SigmoidOp : Op<Nova_Dialect,"sigmoid", [Pure, SameOperandsAndResultType]> {
   let arguments = (ins Nova_Tensor:$lhs);
   let results = (outs Nova_Tensor:$result);
+  let hasVerifier=1;
   let assemblyFormat = [{
     $lhs attr-dict `:` type($lhs) }];
 }
 def Nova_GeluOp : Op<Nova_Dialect,"gelu", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let arguments = (ins Nova_Tensor:$lhs);
   let results = (outs Nova_Tensor:$result);
-  
+  let hasVerifier=1;  
   let assemblyFormat = [{
     $lhs attr-dict `:` type($lhs) }];
   
@@ -868,6 +882,7 @@ def Nova_SoftmaxOp:Op<Nova_Dialect,"softmax",[Pure,DeclareOpInterfaceMethods<Inf
   let arguments=(ins Nova_Tensor:$input,
    OptionalAttr<I32Attr>:$dimension);
   let results =(outs Nova_Tensor:$result);
+  let hasVerifier=1;  
 
   let assemblyFormat = [{
     $input (`dimension` `=` $dimension^)? attr-dict `:` type($input) }];

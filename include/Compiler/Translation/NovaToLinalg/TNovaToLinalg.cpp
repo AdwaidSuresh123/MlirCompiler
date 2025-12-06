@@ -8,6 +8,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/Complex/IR/Complex.h"
 
 #include "Compiler/Translation/NovaToLinalg/NovaToLinalg.h"
 #include "Compiler/Dialect/nova/NovaOps.h"
@@ -103,7 +104,9 @@ namespace mlir
 
       if (isa<IntegerType>(lhs.getType()))
         return builder->create<arith::AddIOp>(op.getLoc(), lhs, rhs);
+      else if(isa<FloatType>(lhs.getType()))
       return builder->create<arith::AddFOp>(op.getLoc(), lhs, rhs);
+      return builder->create<complex::AddOp>(op.getLoc(), lhs, rhs);
       return nullptr;
     }
     static Value opdispatcher(nova::SubOp op, Value lhs, Value rhs, OpBuilder *builder)
@@ -111,7 +114,9 @@ namespace mlir
 
       if (isa<IntegerType>(lhs.getType()))
         return builder->create<arith::SubIOp>(op.getLoc(), lhs, rhs);
+      else if(isa<FloatType>(lhs.getType()))
       return builder->create<arith::SubFOp>(op.getLoc(), lhs, rhs);
+      return builder->create<complex::SubOp>(op.getLoc(), lhs, rhs);
       return nullptr;
     }
     static Value opdispatcher(nova::MulOp op, Value lhs, Value rhs, OpBuilder *builder)
@@ -119,7 +124,11 @@ namespace mlir
 
       if (isa<IntegerType>(lhs.getType()))
         return builder->create<arith::MulIOp>(op.getLoc(), lhs, rhs);
+      if(isa<FloatType>(lhs.getType()))
       return builder->create<arith::MulFOp>(op.getLoc(), lhs, rhs);
+      if(isa<ComplexType>(lhs.getType())){
+        return builder->create<complex::MulOp>(op.getLoc(), lhs, rhs);
+      }
       return nullptr;
     }
     static Value opdispatcher(nova::PowOp op, Value lhs, Value rhs, OpBuilder *builder)
@@ -127,7 +136,10 @@ namespace mlir
 
       if (isa<IntegerType>(lhs.getType()))
         return builder->create<math::IPowIOp>(op.getLoc(), lhs, rhs);
+      else if(isa<FloatType>(lhs.getType()))
       return builder->create<math::PowFOp>(op.getLoc(), lhs, rhs);
+      else if(isa<ComplexType>(lhs.getType())&&isa<ComplexType>(rhs.getType()))
+      return builder->create<complex::PowOp>(op.getLoc(), lhs, rhs);
       return nullptr;
     }
     static Value opdispatcher(nova::CompareOp op,Value lhs,Value rhs,OpBuilder *builder){
@@ -242,6 +254,9 @@ namespace mlir
           return opdispatcher(op, v, args[1], builder);
         }
       }
+      else{
+        return opdispatcher(op, args[0], args[1], builder);
+      }
 
       return nullptr;
     }
@@ -302,20 +317,29 @@ namespace mlir
       // abs operation
       static Value mapOpImpl(nova::AbsOp op, Type resultType, ArrayRef<Value> args, OpBuilder *builder)
       {
-        if (isa<FloatType>(resultType))
+        if (isa<FloatType>(args[0].getType()))
           return builder->create<math::AbsFOp>(op.getLoc(), args[0]);
-        if (isa<IntegerType>(resultType))
+        else if (isa<IntegerType>(resultType))
           return builder->create<math::AbsIOp>(op.getLoc(), args[0]);
+        else
+          return builder->create<complex::AbsOp>(op.getLoc(), args[0]);
         return nullptr;
       }
       // sqrt operation
       static Value mapOpImpl(nova::SqrtOp op, Type resultType, ArrayRef<Value> args, OpBuilder *builder)
       {
+        if(isa<ComplexType>(args[0].getType())){
+          return builder->create<complex::SqrtOp>(op.getLoc(),args[0]);
+        }
         return builder->create<math::SqrtOp>(op.getLoc(), args[0]);
       }
       // div operation
       static Value mapOpImpl(nova::DivOp op, Type resultType, ArrayRef<Value> args, OpBuilder *builder)
       {
+        //if complex directly lower it
+        if(isa<ComplexType>(args[0].getType())){
+          return builder->create<complex::DivOp>(op.getLoc(),args[0],args[1]);
+        }
         // 1..fiding dtype
         auto flhstype = dyn_cast<mlir::FloatType>(args[0].getType());
         auto frhstype = dyn_cast<mlir::FloatType>(args[1].getType());
@@ -557,6 +581,9 @@ namespace mlir
         if (isa<IntegerType>(args[0].getType()))
           return builder->create<math::ExpOp>(op.getLoc(),
                                               builder->create<arith::SIToFPOp>(op.getLoc(), builder->getF32Type(), args[0]));
+        if(isa<ComplexType>(args[0].getType())){
+          return builder->create<complex::ExpOp>(op.getLoc(),args[0]);
+        }
         return nullptr;
       }
       // exp2 operaton
@@ -579,6 +606,9 @@ namespace mlir
         if (isa<IntegerType>(args[0].getType()))
           return builder->create<math::LogOp>(op.getLoc(),
                                               builder->create<arith::SIToFPOp>(op.getLoc(), builder->getF32Type(), args[0]));
+        if(isa<ComplexType>(args[0].getType())){
+          return builder->create<complex::LogOp>(op.getLoc(),args[0]);
+        }
         return nullptr;
       }
       //----------------------------------------------------------------
@@ -616,6 +646,8 @@ namespace mlir
         if (isa<IntegerType>(args[0].getType()))
           return builder->create<math::SinOp>(op.getLoc(),
                                               builder->create<arith::SIToFPOp>(op.getLoc(), builder->getF32Type(), args[0]));
+        if (isa<ComplexType>(args[0].getType()))
+          return builder->create<complex::SinOp>(op.getLoc(), args[0]);
         return nullptr;
       }
 
@@ -628,6 +660,9 @@ namespace mlir
         if (isa<IntegerType>(args[0].getType()))
           return builder->create<math::CosOp>(op.getLoc(),
                                               builder->create<arith::SIToFPOp>(op.getLoc(), builder->getF32Type(), args[0]));
+        if (isa<ComplexType>(args[0].getType()))
+          return builder->create<complex::CosOp>(op.getLoc(), args[0]);
+        
         return nullptr;
       }
 
@@ -640,6 +675,9 @@ namespace mlir
         if (isa<IntegerType>(args[0].getType()))
           return builder->create<math::TanOp>(op.getLoc(),
                                               builder->create<arith::SIToFPOp>(op.getLoc(), builder->getF32Type(), args[0]));
+        if(isa<ComplexType>(args[0].getType())){
+          return builder->create<complex::TanOp>(op.getLoc(), args[0]);
+        }
         return nullptr;
       }
       // asin operation
@@ -672,7 +710,8 @@ namespace mlir
           return builder->create<math::AtanOp>(op.getLoc(), args[0]);
         if (isa<IntegerType>(args[0].getType()))
           return builder->create<math::AtanOp>(op.getLoc(),
-                                               builder->create<arith::SIToFPOp>(op.getLoc(), builder->getF32Type(), args[0]));
+                 builder->create<arith::SIToFPOp>(op.getLoc(), builder->getF32Type(), args[0]));
+
         return nullptr;
       }
       // sinh operation
@@ -706,6 +745,8 @@ namespace mlir
         if (isa<IntegerType>(args[0].getType()))
           return builder->create<math::TanhOp>(op.getLoc(),
                                                builder->create<arith::SIToFPOp>(op.getLoc(), builder->getF32Type(), args[0]));
+        if (isa<ComplexType>(args[0].getType()))
+          return builder->create<complex::TanhOp>(op.getLoc(), args[0]);
         return nullptr;
       }
       // asinh operation

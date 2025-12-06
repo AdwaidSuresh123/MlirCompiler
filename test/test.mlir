@@ -1,6 +1,6 @@
-func.func @test_cancel_transpose_transpose(%arg0: tensor<2x2xf32> , %arg1: tensor<2x2xf32>,%arg2: tensor<2x2xf32> ) 
--> (tensor<2x2xf32>) {
-//	%1 = nova.matmul %arg0, %arg1:tensor<2x2xf32> , tensor<2x2xf32> 
-  %2 = nova.add %arg0, %arg2 : tensor<2x2xf32> ,tensor<2x2xf32>
-  return %2 : tensor<2x2xf32>
+module {
+  func.func @main(%arg0: tensor<4x4x3x2xcomplex<f32>>,%arg1:tensor<2x3xcomplex<f32>> ) -> tensor<4x4x3x3xcomplex<f32>> {
+  %a =nova.matmul %arg0,%arg1 : tensor<4x4x3x2xcomplex<f32>>,tensor<2x3xcomplex<f32>> 
+  return %a :tensor<4x4x3x3xcomplex<f32>>
+  }
 }

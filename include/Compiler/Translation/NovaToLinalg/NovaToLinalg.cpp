@@ -98,6 +98,121 @@ namespace mlir
       }
     };
 
+    
+    // Helper function to broadcast a tensor to a target shape
+    static Value broadcastTensor(ConversionPatternRewriter &rewriter, Location loc,
+                                  Value input, ArrayRef<int64_t> targetShape) {
+      auto inputType = llvm::dyn_cast<RankedTensorType>(input.getType());
+      if (!inputType) {
+        return input;
+      }
+
+      auto inputShape = inputType.getShape();
+      int64_t inputRank = inputShape.size();
+      int64_t targetRank = targetShape.size();
+
+      // If shapes already match, no broadcast needed
+      if (inputRank == targetRank && 
+          std::equal(inputShape.begin(), inputShape.end(), targetShape.begin())) {
+        return input;
+      }
+
+      Value current = input;
+
+      // Handle rank expansion ( [M, K] -> [1, M, K])
+      if (inputRank < targetRank) {
+        int64_t rankDiff = targetRank - inputRank;
+        
+        // Build the expanded shape with leading 1s
+        SmallVector<int64_t> expandedShape;
+        for (int64_t i = 0; i < rankDiff; ++i) {
+          expandedShape.push_back(1);
+        }
+        expandedShape.append(inputShape.begin(), inputShape.end());
+
+        // Build reassociation indices for tensor.expand_shape
+        SmallVector<ReassociationIndices> reassociation;
+        
+        // all the new dimensions (leading 1s) plus the first original dimension
+        ReassociationIndices firstGroup;
+        for (int64_t i = 0; i <= rankDiff; ++i) {
+          firstGroup.push_back(i);
+        }
+        reassociation.push_back(firstGroup);
+        
+        // Remaining dimensions map 1:1
+        for (int64_t i = 1; i < inputRank; ++i) {
+          reassociation.push_back({rankDiff + i});
+        }
+
+        auto expandedType = RankedTensorType::get(expandedShape, inputType.getElementType());
+        current = rewriter.create<tensor::ExpandShapeOp>(
+            loc, expandedType, current, reassociation);
+
+        inputType = expandedType;
+        inputShape = expandedShape;
+        inputRank = targetRank;
+      }
+
+      // Handle broadcasting dimensions ([1, M, K] -> [B, M, K])
+      bool needsBroadcast = false;
+      for (int64_t i = 0; i < targetRank; ++i) {
+        if (inputShape[i] != targetShape[i]) {
+          needsBroadcast = true;
+          break;
+        }
+      }
+
+      if (!needsBroadcast) {
+        return current;
+      }
+
+      // Build affine map for broadcasting
+      SmallVector<AffineExpr> inputExprs;
+      for (int64_t i = 0; i < targetRank; ++i) {
+        int64_t inputSize = inputShape[i];
+        int64_t targetSize = targetShape[i];
+
+        // If broadcasting dimension (1 -> N), use constant 0
+        if (inputSize == 1 && targetSize != 1) {
+          inputExprs.push_back(rewriter.getAffineConstantExpr(0));
+        } else {
+          inputExprs.push_back(rewriter.getAffineDimExpr(i));
+        }
+      }
+
+      // Build affine map for output (identity)
+      SmallVector<AffineExpr> outputExprs;
+      for (int64_t i = 0; i < targetRank; ++i) {
+        outputExprs.push_back(rewriter.getAffineDimExpr(i));
+      }
+
+      auto inputMap = AffineMap::get(targetRank, 0, inputExprs, rewriter.getContext());
+      auto outputMap = AffineMap::get(targetRank, 0, outputExprs, rewriter.getContext());
+
+      // Create empty output tensor
+      Value emptyTensor = rewriter.create<tensor::EmptyOp>(
+          loc, targetShape, inputType.getElementType());
+
+      SmallVector<AffineMap> indexingMaps = {inputMap, outputMap};
+      SmallVector<utils::IteratorType> iteratorTypes(targetRank,
+                                                     utils::IteratorType::parallel);
+
+      // Create linalg.generic for broadcast
+      auto genericOp = rewriter.create<linalg::GenericOp>(
+          loc,
+          TypeRange{emptyTensor.getType()},
+          current, emptyTensor,
+          indexingMaps,
+          iteratorTypes,
+          [&](OpBuilder &b, Location loc, ValueRange args) {
+            b.create<linalg::YieldOp>(loc, args[0]);
+          });
+
+      return genericOp.getResult(0);
+    }
+
+
     //-----------------------------------------------------------------------------
     // Matmul lowering
     //-----------------------------------------------------------------------------
@@ -120,17 +235,119 @@ namespace mlir
         Value lhs = operands[0];
         Value rhs = operands[1];
 
+        auto lhsType = llvm::dyn_cast<RankedTensorType>(lhs.getType());
+        auto rhsType = llvm::dyn_cast<RankedTensorType>(rhs.getType());
+
         // Get result type and create empty output tensor
         auto resultType = llvm::dyn_cast<RankedTensorType>(op.getType());
-          if(resultType.getRank()>3){
-          mlir::emitError(op.getLoc())<<"Matmul should have less than 3 rank";
-          return failure();
-        }
         if (!resultType)
         {
           return rewriter.notifyMatchFailure(op, "expected ranked tensor result");
         }
-        // create a constnt zero
+
+        auto resultShape = resultType.getShape();
+        int64_t resultRank = resultShape.size();
+
+        // For rank > 3: flatten batch dimensions
+        if (resultRank > 3) {
+          int64_t N = 1;
+          for (int64_t i = 0; i < (resultRank - 2); i++) {
+            N *= resultType.getShape()[i];
+          }
+
+          int64_t M = resultType.getShape()[resultRank - 2];
+          int64_t K = lhsType.getShape()[lhsType.getRank() - 1];
+          int64_t N_cols = resultType.getShape()[resultRank - 1];
+
+          SmallVector<int64_t> rank3_lhs_shape({N, M, K});
+          SmallVector<int64_t> rank3_rhs_shape({N, K, N_cols});
+          SmallVector<int64_t> rank3_output_shape({N, M, N_cols});
+
+          auto rank3LhsType = RankedTensorType::get(rank3_lhs_shape, lhsType.getElementType());
+          auto rank3RhsType = RankedTensorType::get(rank3_rhs_shape, rhsType.getElementType());
+
+          // Build reassociation to collapse batch dimensions into one
+          SmallVector<ReassociationIndices> lhsReassociation;
+          ReassociationIndices batchIndices;
+          for (int64_t i = 0; i < resultRank - 2; ++i) {
+            batchIndices.push_back(i);  // All batch dims collapse to one
+          }
+          lhsReassociation.push_back(batchIndices);
+          lhsReassociation.push_back({resultRank - 2});  // M dimension
+          lhsReassociation.push_back({resultRank - 1});  // K dimension
+
+          SmallVector<ReassociationIndices> rhsReassociation;
+          ReassociationIndices rhsBatchIndices;
+          for (int64_t i = 0; i < resultRank - 2; ++i) {
+            rhsBatchIndices.push_back(i);  // All batch dims collapse to one
+          }
+          rhsReassociation.push_back(rhsBatchIndices);
+          rhsReassociation.push_back({resultRank - 2});  // K dimension
+          rhsReassociation.push_back({resultRank - 1});  // N dimension
+
+          Value lhsCollapsed = rewriter.create<tensor::CollapseShapeOp>(
+              op.getLoc(), rank3LhsType, lhs, lhsReassociation);
+          Value rhsCollapsed = rewriter.create<tensor::CollapseShapeOp>(
+              op.getLoc(), rank3RhsType, rhs, rhsReassociation);
+
+          Value cst = rewriter.create<arith::ConstantOp>(
+              op.getLoc(), rewriter.getZeroAttr(resultType.getElementType()));
+          Value emptyTensor = rewriter.create<tensor::EmptyOp>(
+              op.getLoc(), rank3_output_shape, resultType.getElementType());
+          Value outputTensor = rewriter.create<linalg::FillOp>(
+              op.getLoc(), cst, emptyTensor).getResult(0);
+
+          Value matmul3D = rewriter.create<linalg::BatchMatmulOp>(
+              op.getLoc(), ValueRange{lhsCollapsed, rhsCollapsed}, outputTensor).getResult(0);
+
+          // Build reassociation to expand N back to original batch dimensions
+          SmallVector<ReassociationIndices> resultReassociation;
+          ReassociationIndices expandedBatchIndices;
+          for (int64_t i = 0; i < resultRank - 2; ++i) {
+            expandedBatchIndices.push_back(i);  // N expands to all batch dims
+          }
+          resultReassociation.push_back(expandedBatchIndices);
+          resultReassociation.push_back({resultRank - 2});  // M dimension
+          resultReassociation.push_back({resultRank - 1});  // N dimension
+
+          rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
+              op, resultType, matmul3D, resultReassociation);
+          return success();
+        }
+
+        // Handle broadcasting for batch matmul
+        if (resultRank == 3) {
+          // Result shape is [B, M, N]
+          int64_t batchDim = resultShape[0];
+
+          // Broadcast lhs to [B, M, K] if needed
+          SmallVector<int64_t> lhsTargetShape;
+          if (lhsType.getRank() == 2) {
+            // [M, K] -> [B, M, K]
+            lhsTargetShape = {batchDim, lhsType.getShape()[0], lhsType.getShape()[1]};
+          } else if (lhsType.getRank() == 3) {
+            // [B', M, K] -> [B, M, K] (B' might be 1 or different)
+            lhsTargetShape = {batchDim, lhsType.getShape()[1], lhsType.getShape()[2]};
+          }
+
+          if (!lhsTargetShape.empty()) {
+            lhs = broadcastTensor(rewriter, op.getLoc(), lhs, lhsTargetShape);
+          }
+
+          // Broadcast rhs to [B, K, N] if needed
+          SmallVector<int64_t> rhsTargetShape;
+          if (rhsType.getRank() == 2) {
+            rhsTargetShape = {batchDim, rhsType.getShape()[0], rhsType.getShape()[1]};
+          } else if (rhsType.getRank() == 3) {
+            rhsTargetShape = {batchDim, rhsType.getShape()[1], rhsType.getShape()[2]};
+          }
+
+          if (!rhsTargetShape.empty()) {
+            rhs = broadcastTensor(rewriter, op.getLoc(), rhs, rhsTargetShape);
+          }
+        }
+
+        // create a constant zero
         Value cst = rewriter.create<arith::ConstantOp>(
             op.getLoc(), rewriter.getZeroAttr(resultType.getElementType()));
         // Create an empty tensor for the output
@@ -144,7 +361,7 @@ namespace mlir
                                  .getResult(0);
                       
 
-        //batch mamtul
+        //batch matmul
         if(resultType.getRank()==3){
           rewriter.replaceOpWithNewOp<linalg::BatchMatmulOp>(
             op,ValueRange{lhs,rhs},
@@ -160,6 +377,7 @@ namespace mlir
         return success();
       }
     };
+
     //-------------------------------------------------------------------
     // Transpose
     //-------------------------------------------------------------------
