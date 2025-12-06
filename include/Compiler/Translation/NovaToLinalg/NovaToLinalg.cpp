@@ -246,10 +246,26 @@ namespace mlir
         }
 
         auto resultShape = resultType.getShape();
+        auto newShape = resultShape.drop_back(2);
         int64_t resultRank = resultShape.size();
 
         // For rank > 3: flatten batch dimensions
         if (resultRank > 3) {
+          // Broadcast LHS to match result batch dimensions
+          SmallVector<int64_t> lhsTargetShape(newShape.begin(), newShape.end());
+          lhsTargetShape.push_back(lhsType.getShape()[lhsType.getRank() - 2]);
+          lhsTargetShape.push_back(lhsType.getShape()[lhsType.getRank() - 1]);
+          lhs = broadcastTensor(rewriter, op.getLoc(), lhs, lhsTargetShape);
+          lhsType = llvm::dyn_cast<RankedTensorType>(lhs.getType());
+
+          // Broadcast RHS to match result batch dimensions
+          SmallVector<int64_t> rhsTargetShape(newShape.begin(), newShape.end());
+          rhsTargetShape.push_back(rhsType.getShape()[rhsType.getRank() - 2]);
+          rhsTargetShape.push_back(rhsType.getShape()[rhsType.getRank() - 1]);
+          rhs = broadcastTensor(rewriter, op.getLoc(), rhs, rhsTargetShape);
+          rhsType = llvm::dyn_cast<RankedTensorType>(rhs.getType());
+
+
           int64_t N = 1;
           for (int64_t i = 0; i < (resultRank - 2); i++) {
             N *= resultType.getShape()[i];

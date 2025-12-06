@@ -1096,57 +1096,73 @@ LogicalResult MatmulOp::inferReturnTypes(
   Type rhselemType = rhstensor.getElementType();
   unsigned resultbitwidth = 0;
   mlir::Type resultType = builder.getI8Type();
-  auto flhstype = dyn_cast<mlir::FloatType>(lhselemtype);
-  auto frhstype = dyn_cast<mlir::FloatType>(rhselemType);
-  auto ilhstype = dyn_cast<mlir::IntegerType>(lhselemtype);
-  auto irhstype = dyn_cast<mlir::IntegerType>(rhselemType);
-  // if both float, get higher bitwidth
-  if (flhstype && frhstype)
+  
+  // Check for complex types first
+  if (isa<ComplexType>(lhselemtype) || isa<ComplexType>(rhselemType))
   {
-    unsigned lhsbitwidth = flhstype.getWidth();
-    unsigned rhsbitwidth = frhstype.getWidth();
-    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+    // For complex types, extract the element type and use it
+    Type complexElemType = builder.getF32Type();
+    if (auto clhs = dyn_cast<ComplexType>(lhselemtype)) {
+      complexElemType = clhs.getElementType();
+    } else if (auto crhs = dyn_cast<ComplexType>(rhselemType)) {
+      complexElemType = crhs.getElementType();
+    }
+    resultType = ComplexType::get(complexElemType);  
   }
-  // if lhs float and rhs is int get lhs bitwidth
-  else if (flhstype && irhstype)
-  {
-    unsigned lhsbitwidth = flhstype.getWidth();
-    unsigned rhsbitwidth = irhstype.getWidth();
-    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
-  }
-  // if rhs float and lhs is int get rhs bitwidth
-  else if (ilhstype && frhstype)
-  {
-    unsigned lhsbitwidth = ilhstype.getWidth();
-    unsigned rhsbitwidth = frhstype.getWidth();
-    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
-  }
-  // if both integer get higher bitwidth and push back the result int type
   else
   {
-    unsigned lhsbitwidth = ilhstype.getWidth();
-    unsigned rhsbitwidth = irhstype.getWidth();
-    resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+    auto flhstype = dyn_cast<mlir::FloatType>(lhselemtype);
+    auto frhstype = dyn_cast<mlir::FloatType>(rhselemType);
+    auto ilhstype = dyn_cast<mlir::IntegerType>(lhselemtype);
+    auto irhstype = dyn_cast<mlir::IntegerType>(rhselemType);
+    // if both float, get higher bitwidth
+    if (flhstype && frhstype)
+    {
+      unsigned lhsbitwidth = flhstype.getWidth();
+      unsigned rhsbitwidth = frhstype.getWidth();
+      resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+    }
+    // if lhs float and rhs is int get lhs bitwidth
+    else if (flhstype && irhstype)
+    {
+      unsigned lhsbitwidth = flhstype.getWidth();
+      unsigned rhsbitwidth = irhstype.getWidth();
+      resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+    }
+    // if rhs float and lhs is int get rhs bitwidth
+    else if (ilhstype && frhstype)
+    {
+      unsigned lhsbitwidth = ilhstype.getWidth();
+      unsigned rhsbitwidth = frhstype.getWidth();
+      resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+    }
+    // if both integer get higher bitwidth and push back the result int type
+    else if (ilhstype && irhstype)
+    {
+      unsigned lhsbitwidth = ilhstype.getWidth();
+      unsigned rhsbitwidth = irhstype.getWidth();
+      resultbitwidth = lhsbitwidth > rhsbitwidth ? lhsbitwidth : rhsbitwidth;
+      switch (resultbitwidth)
+      {
+      case 64:
+        resultType = builder.getI64Type();
+        break;
+      case 32:
+        resultType = builder.getI32Type();
+        break;
+      case 16:
+        resultType = builder.getI16Type();
+      }
+    }
+    resultType = builder.getF16Type();
     switch (resultbitwidth)
     {
     case 64:
-      resultType = builder.getI64Type();
+      resultType = builder.getF64Type();
       break;
     case 32:
-      resultType = builder.getI32Type();
-      break;
-    case 16:
-      resultType = builder.getI16Type();
+      resultType = builder.getF32Type();
     }
-  }
-  resultType = builder.getF16Type();
-  switch (resultbitwidth)
-  {
-  case 64:
-    resultType = builder.getF64Type();
-    break;
-  case 32:
-    resultType = builder.getF32Type();
   }
   // end of finding element type
 
